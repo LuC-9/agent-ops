@@ -1,34 +1,17 @@
-"use client";
-
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScorePill } from "@/components/app-shell";
-import type { Agent, Trace } from "@/lib/types";
+import { getStore, getTrace } from "@/lib/store";
 
-export default function TracePage() {
-  const params = useParams<{ id: string }>();
-  const [trace, setTrace] = useState<Trace | null>(null);
-  const [agent, setAgent] = useState<Agent | null>(null);
-  const [error, setError] = useState<string | null>(null);
+export const dynamic = "force-dynamic";
 
-  useEffect(() => {
-    fetch(`/api/traces/${params.id}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.error) setError(data.error);
-        else {
-          setTrace(data.trace);
-          setAgent(data.agent);
-        }
-      })
-      .catch(() => setError("Failed to load trace"));
-  }, [params.id]);
-
-  if (error) return <div className="p-8 text-rose-300">{error}</div>;
-  if (!trace) return <div className="p-8 text-slate-400">Loading trace…</div>;
+export default async function TracePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const trace = getTrace(id);
+  if (!trace) notFound();
+  const agent = getStore().agents.find((a) => a.id === trace.agentId) ?? null;
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-4 md:p-8">
@@ -38,7 +21,9 @@ export default function TracePage() {
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="font-mono text-lg text-slate-100">{trace.id}</h1>
         <Badge variant={trace.status === "ok" ? "default" : "destructive"}>{trace.status}</Badge>
-        <span className="text-xs text-slate-500">{trace.latencyMs} ms · {trace.model ?? "unknown model"}</span>
+        <span className="text-xs text-slate-500">
+          {trace.latencyMs} ms · {trace.model ?? "unknown model"}
+        </span>
       </div>
 
       <div className="grid grid-cols-3 gap-3">

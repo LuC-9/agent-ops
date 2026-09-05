@@ -1,76 +1,18 @@
-"use client";
-
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScorePill } from "@/components/app-shell";
-import type { Agent, Trace } from "@/lib/types";
+import { summarizeAgent } from "@/lib/scoring";
+import { getStore } from "@/lib/store";
 
-type Stats = {
-  agents: number;
-  online: number;
-  traces: number;
-  errors: number;
-  avgAccuracy: number;
-  avgConfidence: number;
-  avgTrust: number;
-  openImprovements: number;
-};
+export const dynamic = "force-dynamic";
 
 export default function HomePage() {
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [traces, setTraces] = useState<Trace[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  async function load() {
-    try {
-      const [s, a, t] = await Promise.all([
-        fetch("/api/stats").then((r) => r.json()),
-        fetch("/api/agents").then((r) => r.json()),
-        fetch("/api/traces").then((r) => r.json()),
-      ]);
-      setStats(s);
-      setAgents(a.agents ?? []);
-      setTraces(t.traces ?? []);
-      setError(null);
-    } catch {
-      setError("Could not load telemetry. Is the observability platform running?");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-    const id = setInterval(load, 5000);
-    return () => clearInterval(id);
-  }, []);
-
-  const byAgent = useMemo(() => {
-    return agents.map((agent) => {
-      const mine = traces.filter((tr) => tr.agentId === agent.id);
-      const last = mine[0];
-      const avg = (key: "accuracy" | "confidence" | "trustScore") =>
-        mine.length ? mine.reduce((n, tr) => n + tr[key], 0) / mine.length : 0;
-      return { agent, last, avgAccuracy: avg("accuracy"), avgConfidence: avg("confidence"), avgTrust: avg("trustScore"), count: mine.length };
-    });
-  }, [agents, traces]);
-
-  if (loading) {
-    return <div className="p-8 text-slate-400">Loading live telemetry…</div>;
-  }
-  if (error) {
-    return (
-      <div className="p-8">
-        <p className="text-rose-300">{error}</p>
-        <Button className="mt-4" onClick={load}>Retry</Button>
-      </div>
-    );
-  }
+  const store = getStore();
+  const { agents, traces } = store;
+  const avg = (key: "accuracy" | "confidence" | "trustScore") =>
+    traces.length ? traces.reduce((n, t) => n + t[key], 0) / traces.length : 0;
+  const online = agents.filter((a) => a.status === "online").length;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-8">
@@ -82,54 +24,58 @@ export default function HomePage() {
             Four LangGraph agents report every request, response, log line, and self-score. Trust blends accuracy, confidence, and reliability.
           </p>
         </div>
-        <Button variant="outline" onClick={load}>Refresh</Button>
       </header>
 
       <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <ScorePill label="Accuracy" value={stats?.avgAccuracy ?? 0} />
-        <ScorePill label="Confidence" value={stats?.avgConfidence ?? 0} />
-        <ScorePill label="Trust" value={stats?.avgTrust ?? 0} />
+        <ScorePill label="Accuracy" value={avg("accuracy")} />
+        <ScorePill label="Confidence" value={avg("confidence")} />
+        <ScorePill label="Trust" value={avg("trustScore")} />
         <div className="rounded-lg border border-white/10 px-3 py-2">
           <p className="text-[11px] tracking-wide text-slate-400 uppercase">Fleet</p>
           <p className="font-mono text-xl text-cyan-200">
-            {stats?.online}/{stats?.agents} online
+            {online}/{agents.length} online
           </p>
           <p className="text-xs text-slate-500">
-            {stats?.traces} traces · {stats?.errors} errors · {stats?.openImprovements} open fixes
+            {traces.length} traces · {traces.filter((t) => t.status === "error").length} errors ·{" "}
+            {store.improvements.filter((i) => i.status === "open").length} open fixes
           </p>
         </div>
       </section>
 
       <section className="grid gap-4 md:grid-cols-2">
-        {byAgent.map(({ agent, last, avgAccuracy, avgConfidence, avgTrust, count }) => (
-          <Link key={agent.id} href={`/agents/${agent.id}`}>
-            <Card className="h-full border-white/10 bg-[#10202c] transition hover:border-cyan-400/40">
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <CardTitle className="text-base text-slate-100">{agent.name}</CardTitle>
-                    <p className="mt-1 text-xs text-slate-400">{agent.description}</p>
+        {agents.map((agent) => {
+          const stats = summarizeAgent(agent, traces);
+          const last = traces.find((tr) => tr.agentId === agent.id);
+          return (
+            <Link key={agent.id} href={`/agents/${agent.id}`}>
+              <Card className="h-full border-white/10 bg-[#10202c] transition hover:border-cyan-400/40">
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <CardTitle className="text-base text-slate-100">{agent.name}</CardTitle>
+                      <p className="mt-1 text-xs text-slate-400">{agent.description}</p>
+                    </div>
+                    <Badge variant={agent.status === "online" ? "default" : agent.status === "degraded" ? "destructive" : "secondary"}>
+                      {agent.status}
+                    </Badge>
                   </div>
-                  <Badge variant={agent.status === "online" ? "default" : agent.status === "degraded" ? "destructive" : "secondary"}>
-                    {agent.status}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid grid-cols-3 gap-2">
-                  <ScorePill label="Accuracy" value={avgAccuracy} />
-                  <ScorePill label="Confidence" value={avgConfidence} />
-                  <ScorePill label="Trust" value={avgTrust} />
-                </div>
-                <p className="line-clamp-2 font-mono text-[11px] text-slate-500">{agent.systemPrompt}</p>
-                <p className="text-xs text-slate-400">
-                  {count} traces
-                  {last ? ` · last: ${last.request.slice(0, 72)}${last.request.length > 72 ? "…" : ""}` : ""}
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-3 gap-2">
+                    <ScorePill label="Accuracy" value={stats.avgAccuracy} />
+                    <ScorePill label="Confidence" value={stats.avgConfidence} />
+                    <ScorePill label="Trust" value={stats.avgTrust} />
+                  </div>
+                  <p className="line-clamp-2 font-mono text-[11px] text-slate-500">{agent.systemPrompt}</p>
+                  <p className="text-xs text-slate-400">
+                    {stats.traces} traces
+                    {last ? ` · last: ${last.request.slice(0, 72)}${last.request.length > 72 ? "…" : ""}` : ""}
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+          );
+        })}
       </section>
 
       <section>
