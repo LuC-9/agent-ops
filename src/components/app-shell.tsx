@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Bot, FlaskConical, MessageSquare, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Activity, Bot, FlaskConical, ListTree, MessageSquare, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const nav = [
   { href: "/", label: "Control room", icon: Activity },
+  { href: "/traces", label: "Traces", icon: ListTree },
   { href: "/improvements", label: "Improvements", icon: Sparkles },
   { href: "/copilot", label: "Copilot", icon: MessageSquare },
   { href: "/playground", label: "Run agents", icon: FlaskConical },
@@ -14,15 +16,34 @@ const nav = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const [stats, setStats] = useState<{ online: number; agents: number; errors: number; openImprovements: number } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      fetch("/api/stats")
+        .then((r) => r.json())
+        .then((d) => {
+          if (alive) setStats(d);
+        })
+        .catch(() => undefined);
+    load();
+    const id = setInterval(load, 8000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
   return (
     <div className="flex min-h-full flex-col lg:flex-row">
-      <aside className="border-b border-white/10 bg-[#071018] lg:w-60 lg:border-b-0 lg:border-r">
+      <aside className="border-b border-cyan-400/10 bg-[#071018] lg:w-64 lg:border-b-0 lg:border-r">
         <div className="flex items-center gap-2 px-4 py-4">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-cyan-400/15 text-cyan-300">
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-cyan-400/15 text-cyan-300 ring-1 ring-cyan-400/30">
             <Bot className="h-4 w-4" />
           </div>
           <div>
-            <p className="font-mono text-xs tracking-[0.2em] text-cyan-300/80">NORTHSTAR</p>
+            <p className="font-mono text-[10px] tracking-[0.22em] text-cyan-300/80">NORTHSTAR</p>
             <p className="text-sm font-medium text-slate-100">Agent Observability</p>
           </div>
         </div>
@@ -45,8 +66,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
+        {stats && (
+          <div className="hidden px-4 pb-4 font-mono text-[11px] text-slate-500 lg:block">
+            <p>
+              <span className="text-cyan-300">{stats.online}</span>/{stats.agents} online
+            </p>
+            <p>
+              {stats.errors} errors · {stats.openImprovements} open fixes
+            </p>
+          </div>
+        )}
       </aside>
-      <main className="flex-1 bg-[#0b1520]">{children}</main>
+      <main className="obs-grid flex-1 bg-[#0b1520]">{children}</main>
     </div>
   );
 }
@@ -60,7 +91,7 @@ export function ScorePill({
 }) {
   const tone = value >= 80 ? "text-emerald-300" : value >= 60 ? "text-amber-300" : "text-rose-300";
   return (
-    <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+    <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
       <p className="text-[11px] tracking-wide text-slate-400 uppercase">{label}</p>
       <p className={cn("font-mono text-xl", tone)}>{Number.isFinite(value) ? value.toFixed(1) : "—"}</p>
     </div>

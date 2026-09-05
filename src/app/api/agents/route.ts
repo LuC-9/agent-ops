@@ -1,5 +1,6 @@
 import { json, corsHeaders } from "@/lib/http";
 import { getStore, registerAgent } from "@/lib/store";
+import { validateRegister } from "@/lib/validate";
 
 export const dynamic = "force-dynamic";
 
@@ -13,9 +14,8 @@ export function GET() {
 
 export async function POST(req: Request) {
   const body = await req.json();
-  if (!body?.name || !body?.slug || !body?.systemPrompt || !body?.graph) {
-    return json({ error: "name, slug, systemPrompt, and graph are required" }, 400);
-  }
+  const error = validateRegister(body);
+  if (error) return json({ error }, 400);
   const agent = registerAgent(body);
   return json({ agent });
 }

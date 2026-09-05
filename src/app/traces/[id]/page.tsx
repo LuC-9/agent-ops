@@ -21,8 +21,10 @@ export default async function TracePage({ params }: { params: Promise<{ id: stri
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="font-mono text-lg text-slate-100">{trace.id}</h1>
         <Badge variant={trace.status === "ok" ? "default" : "destructive"}>{trace.status}</Badge>
+        {trace.degraded && <Badge variant="secondary">degraded</Badge>}
         <span className="text-xs text-slate-500">
           {trace.latencyMs} ms · {trace.model ?? "unknown model"}
+          {trace.threadId ? ` · thread ${trace.threadId.slice(0, 8)}` : ""}
         </span>
       </div>
 
@@ -31,6 +33,11 @@ export default async function TracePage({ params }: { params: Promise<{ id: stri
         <ScorePill label="Confidence" value={trace.confidence} />
         <ScorePill label="Trust" value={trace.trustScore} />
       </div>
+      {typeof trace.calibrationGap === "number" && (
+        <p className="font-mono text-xs text-slate-500">
+          Calibration gap (confidence − accuracy): {trace.calibrationGap.toFixed(1)}
+        </p>
+      )}
 
       <Card className="border-white/10 bg-[#10202c]">
         <CardHeader><CardTitle className="text-sm">Request</CardTitle></CardHeader>

@@ -55,6 +55,9 @@ export interface Trace {
   logs: LogEvent[];
   model?: string;
   tokens?: { prompt: number; completion: number };
+  threadId?: string;
+  degraded?: boolean;
+  calibrationGap?: number;
 }
 
 export interface Improvement {
@@ -92,6 +95,7 @@ export interface AgentStats {
   avgConfidence: number;
   avgTrust: number;
   avgLatencyMs: number;
+  calibrationGap: number;
 }
 
 export interface IngestPayload {
@@ -111,6 +115,8 @@ export interface IngestPayload {
   latencyMs?: number;
   model?: string;
   tokens?: { prompt: number; completion: number };
+  threadId?: string;
+  degraded?: boolean;
 }
 
 export interface RegisterAgentPayload {

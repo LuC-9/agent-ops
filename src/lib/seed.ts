@@ -15,7 +15,7 @@ export const seedAgents: Agent[] = [
     lastHeartbeatAt: null,
     createdAt: iso(86_400_000),
     graph: {
-      nodes: ["plan", "gather", "synthesize", "score"],
+      nodes: ["plan", "gather", "regather", "synthesize", "score"],
       edges: [
         { from: "START", to: "plan" },
         { from: "plan", to: "gather" },
@@ -39,7 +39,7 @@ Return a concise brief with claims, caveats, and a self-reported confidence betw
     lastHeartbeatAt: null,
     createdAt: iso(72_000_000),
     graph: {
-      nodes: ["classify", "policy", "draft", "score"],
+      nodes: ["classify", "policy", "draft", "escalate", "score"],
       edges: [
         { from: "START", to: "classify" },
         { from: "classify", to: "policy" },
@@ -87,7 +87,7 @@ Do not rewrite the entire file. Rate residual risk and confidence.`,
     lastHeartbeatAt: null,
     createdAt: iso(40_000_000),
     graph: {
-      nodes: ["triage", "correlate", "runbook", "score"],
+      nodes: ["triage", "correlate", "fallback", "runbook", "score"],
       edges: [
         { from: "START", to: "triage" },
         { from: "triage", to: "correlate" },

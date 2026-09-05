@@ -60,6 +60,7 @@ export function summarizeAgent(agent: Agent, traces: Trace[]) {
       avgConfidence: 0,
       avgTrust: 0,
       avgLatencyMs: 0,
+      calibrationGap: 0,
     };
   }
   const errors = mine.filter((t) => t.status === "error").length;
@@ -73,5 +74,6 @@ export function summarizeAgent(agent: Agent, traces: Trace[]) {
     avgConfidence: sum("confidence"),
     avgTrust: sum("trustScore"),
     avgLatencyMs: sum("latencyMs"),
+    calibrationGap: sum("confidence") - sum("accuracy"),
   };
 }

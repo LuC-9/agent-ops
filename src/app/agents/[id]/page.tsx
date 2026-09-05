@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { GraphFlow } from "@/components/graph-flow";
+import { Sparkline } from "@/components/sparkline";
 import { ScorePill } from "@/components/app-shell";
 import { summarizeAgent } from "@/lib/scoring";
 import { getStore } from "@/lib/store";
@@ -33,11 +35,13 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ id
         <ScorePill label="Accuracy" value={stats.avgAccuracy} />
         <ScorePill label="Confidence" value={stats.avgConfidence} />
         <ScorePill label="Trust" value={stats.avgTrust} />
-        <div className="rounded-lg border border-white/10 px-3 py-2">
+        <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
           <p className="text-[11px] tracking-wide text-slate-400 uppercase">Reliability</p>
           <p className="font-mono text-xl text-slate-100">{((1 - stats.errorRate) * 100).toFixed(0)}%</p>
+          <p className="font-mono text-[11px] text-slate-500">cal {stats.calibrationGap.toFixed(1)}</p>
         </div>
       </div>
+      <Sparkline values={traces.slice(0, 20).map((t) => t.trustScore).reverse()} />
 
       <Card className="border-white/10 bg-[#10202c]">
         <CardHeader>
@@ -47,7 +51,10 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ id
           <pre className="whitespace-pre-wrap rounded-md bg-black/30 p-3 font-mono text-xs text-cyan-100/90">
             {agent.systemPrompt}
           </pre>
-          <p className="mt-3 text-xs text-slate-500">Graph: {agent.graph.nodes.join(" → ")}</p>
+          <div className="mt-4">
+            <p className="mb-2 text-xs text-slate-500">Compiled graph</p>
+            <GraphFlow graph={agent.graph} />
+          </div>
         </CardContent>
       </Card>
 

@@ -128,3 +128,8 @@
     @apply font-sans;
   }
 }
+
+.obs-grid {
+  background-image: radial-gradient(circle at 1px 1px, rgb(34 211 238 / 0.09) 1px, transparent 0);
+  background-size: 22px 22px;
+}

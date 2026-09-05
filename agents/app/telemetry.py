@@ -14,11 +14,27 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _post_with_retry(url: str, payload: dict[str, Any], *, attempts: int = 3, timeout: float = 10.0) -> httpx.Response:
+    last_exc: Exception | None = None
+    for i in range(attempts):
+        try:
+            res = httpx.post(url, json=payload, timeout=timeout)
+            if res.status_code >= 500:
+                raise httpx.HTTPStatusError("server error", request=res.request, response=res)
+            return res
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            time.sleep(0.4 * (2**i))
+    assert last_exc is not None
+    raise last_exc
+
+
 class Recorder:
-    def __init__(self, slug: str, system_prompt: str, model: str) -> None:
+    def __init__(self, slug: str, system_prompt: str, model: str, thread_id: str | None = None) -> None:
         self.slug = slug
         self.system_prompt = system_prompt
         self.model = model
+        self.thread_id = thread_id
         self.logs: list[dict[str, Any]] = []
         self.started = time.time()
         self.started_at = _now()
@@ -43,6 +59,7 @@ class Recorder:
         accuracy: float | None = None,
         confidence: float | None = None,
         error: str | None = None,
+        degraded: bool = False,
     ) -> dict[str, Any]:
         ended = time.time()
         payload = {
@@ -59,10 +76,12 @@ class Recorder:
             "endedAt": _now(),
             "latencyMs": int((ended - self.started) * 1000),
             "model": self.model,
+            "threadId": self.thread_id,
+            "degraded": degraded,
         }
         url = f"{OBSERVABILITY_URL}/api/ingest"
         try:
-            res = httpx.post(url, json=payload, timeout=10.0)
+            res = _post_with_retry(url, payload)
             res.raise_for_status()
             return res.json().get("trace", payload)
         except Exception as exc:  # noqa: BLE001
@@ -73,7 +92,7 @@ class Recorder:
 def register_agent(spec: dict[str, Any]) -> dict[str, Any] | None:
     url = f"{OBSERVABILITY_URL}/api/agents"
     try:
-        res = httpx.post(url, json=spec, timeout=10.0)
+        res = _post_with_retry(url, spec)
         res.raise_for_status()
         return res.json().get("agent")
     except Exception:

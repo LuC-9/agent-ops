@@ -27,7 +27,7 @@ Base URL: `http://127.0.0.1:43147`
 
 | Method | Path | Body / query | Result |
 | --- | --- | --- | --- |
-| GET | `/api/stats` | | Fleet KPIs |
+| GET | `/api/health` | | Store + process health |
 | GET/POST | `/api/agents` | register spec | List / upsert agent |
 | GET/POST | `/api/agents/:id` | | Detail + traces; POST = heartbeat |
 | POST | `/api/ingest` | `IngestPayload` | Scored `Trace` |
@@ -102,7 +102,7 @@ FastAPI app: `agents/app/server.py`.
 - `POST /invoke` `{ "slug", "input" }` compiles-once LangGraph and returns `{ trace, output, status }`.
 - Graphs live under `agents/app/graphs/`. Each node calls `Recorder.log` and `complete(system, user, fallback)`.
 
-`complete` (`agents/app/llm.py`) uses Gemini (`ChatGoogleGenerativeAI`) when `GEMINI_API_KEY` is set, else OpenAI, else the authored fallback so graphs still exercise real LangGraph edges.
+`complete` (`agents/app/llm.py`) uses Gemini when `GEMINI_API_KEY` is set, else OpenAI, else the authored fallback. Calls are bounded by `LLM_TIMEOUT_S` (default 25s). Graphs use tools (`app/tools.py`): a citation retriever, policy cards, CWE scanner, and cached SLO snapshots. Sentinel routes `metrics_timeout` through a **fallback** node instead of failing closed. Ingest retries three times. The JSON store writes atomically (`*.tmp` + rename) and caps traces.
 
 ### Graphs
 
