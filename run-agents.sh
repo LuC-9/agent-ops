@@ -14,9 +14,17 @@ fi
 export OBSERVABILITY_URL="${OBSERVABILITY_URL:-http://127.0.0.1:43147}"
 export AGENTS_PORT="${AGENTS_PORT:-43148}"
 
-if [[ ! -d .venv ]]; then
+if [[ ! -x .venv/bin/uvicorn ]]; then
   echo "Creating Python virtualenv for LangGraph agents..."
-  python3 -m venv .venv
+  rm -rf .venv
+  if /usr/bin/python3 -m venv .venv 2>/dev/null && [[ -x .venv/bin/pip ]]; then
+    :
+  else
+    rm -rf .venv
+    /usr/bin/python3 -m pip install --user virtualenv >/dev/null
+    export PATH="$HOME/.local/bin:$PATH"
+    /usr/bin/python3 -m virtualenv .venv
+  fi
 fi
 
 # shellcheck disable=SC1091
