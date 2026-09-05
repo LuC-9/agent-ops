@@ -29,7 +29,7 @@ chmod +x run-observability.sh run-agents.sh
 - Dashboard: [http://127.0.0.1:43147](http://127.0.0.1:43147)
 - Agent runtime: [http://127.0.0.1:43148/health](http://127.0.0.1:43148/health)
 
-Copy `.env.example` to `.env` if you want to change ports or attach an OpenAI key. Both scripts source `.env` automatically. **No API key is required** — agents and the copilot fall back to a deterministic analyst.
+Copy `.env.example` to `.env` to change ports or attach a Gemini (preferred) or OpenAI key. Both scripts source `.env` automatically. **No API key is required** — agents and the copilot fall back to a deterministic analyst. Never commit `.env`.
 
 Then open **Run agents** in the UI and invoke a prompt. Traces land in the control room within seconds.
 

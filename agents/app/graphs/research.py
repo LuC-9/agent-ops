@@ -45,7 +45,7 @@ def plan_node(state: ResearchState) -> dict[str, Any]:
 
 def gather_node(state: ResearchState) -> dict[str, Any]:
     rec = state["recorder"]
-    rec.log("Gathered local knowledge snippets (mock retriever unless OPENAI_API_KEY is set)", node="gather")
+    rec.log("Gathered evidence (Gemini when GEMINI_API_KEY is set, else local pack)", node="gather")
     fallback = (
         "Evidence: LangGraph persistence uses a checkpointer for graph state and an optional store for long-term memory. "
         "Thread ids isolate conversations. Source: LangGraph persistence docs."

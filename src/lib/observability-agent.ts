@@ -156,32 +156,62 @@ Ask me about accuracy/confidence/trust, error logs, system prompts, or request a
 Weakest agent by trust: ${worst.agent.name} (${worst.stats.avgTrust.toFixed(1)}).`;
 }
 
-export async function llmAugment(prompt: string, fallback: string): Promise<string> {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) return fallback;
-  try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+const SYSTEM =
+  "You are an observability engineer for LangGraph agents. Be specific. Cite trace ids and node names when present. Do not invent metrics.";
+
+async function callGemini(prompt: string): Promise<string | null> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return null;
+  const model = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
+        "x-goog-api-key": key,
       },
       body: JSON.stringify({
-        model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-        temperature: 0.2,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are an observability engineer for LangGraph agents. Be specific. Cite trace ids and node names when present. Do not invent metrics.",
-          },
-          { role: "user", content: prompt },
-        ],
+        systemInstruction: { parts: [{ text: SYSTEM }] },
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.2 },
       }),
-    });
-    if (!res.ok) return fallback;
-    const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    return json.choices?.[0]?.message?.content?.trim() || fallback;
+    },
+  );
+  if (!res.ok) return null;
+  const json = (await res.json()) as {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+  };
+  const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
+  return text || null;
+}
+
+async function callOpenAI(prompt: string): Promise<string | null> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) return null;
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+      temperature: 0.2,
+      messages: [
+        { role: "system", content: SYSTEM },
+        { role: "user", content: prompt },
+      ],
+    }),
+  });
+  if (!res.ok) return null;
+  const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  return json.choices?.[0]?.message?.content?.trim() || null;
+}
+
+export async function llmAugment(prompt: string, fallback: string): Promise<string> {
+  try {
+    return (await callGemini(prompt)) || (await callOpenAI(prompt)) || fallback;
   } catch {
     return fallback;
   }

@@ -20,7 +20,7 @@ flowchart LR
   Dash -->|POST /api/invoke| Runtime
   Runtime -->|register + ingest + heartbeat| Dash
   Dash --> Store
-  Runtime -.->|if OPENAI_API_KEY| LLM
+  Runtime -.->|if GEMINI_API_KEY or OPENAI_API_KEY| LLM
   Dash -.->|copilot / improvement refine| LLM
 ```
 
@@ -75,7 +75,7 @@ This keeps an agent that is “sure but often wrong” from looking trustworthy.
 The dashboard is not only a viewer:
 
 1. **Analyze logs** (`POST /api/improvements/generate`) clusters error traces, low accuracy, missing citations, and short answers, then writes improvement cards (prompt, graph, tooling, evaluation, reliability).
-2. **Copilot** (`POST /api/copilot`) answers operator questions from the same store. With `OPENAI_API_KEY` it refines the heuristic draft; without a key it still answers from telemetry.
+2. **Copilot** (`POST /api/copilot`) answers operator questions from the same store. With `GEMINI_API_KEY` (preferred) or `OPENAI_API_KEY` it refines the heuristic draft; without a key it still answers from telemetry.
 3. **Playground** executes a live graph so new evidence appears immediately.
 
 ## 7. Data store

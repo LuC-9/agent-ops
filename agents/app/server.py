@@ -20,7 +20,12 @@ MODULES = {
 }
 
 GRAPHS = {slug: mod.build_graph() for slug, mod in MODULES.items()}
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini") if os.getenv("OPENAI_API_KEY") else "deterministic-pack"
+if os.getenv("GEMINI_API_KEY"):
+    MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+elif os.getenv("OPENAI_API_KEY"):
+    MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+else:
+    MODEL = "deterministic-pack"
 
 
 class InvokeBody(BaseModel):

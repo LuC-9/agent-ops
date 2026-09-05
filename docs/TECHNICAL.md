@@ -102,7 +102,7 @@ FastAPI app: `agents/app/server.py`.
 - `POST /invoke` `{ "slug", "input" }` compiles-once LangGraph and returns `{ trace, output, status }`.
 - Graphs live under `agents/app/graphs/`. Each node calls `Recorder.log` and `complete(system, user, fallback)`.
 
-`complete` (`agents/app/llm.py`) uses `langchain_openai.ChatOpenAI` when `OPENAI_API_KEY` is set; otherwise it returns the authored fallback so graphs still exercise real LangGraph edges.
+`complete` (`agents/app/llm.py`) uses Gemini (`ChatGoogleGenerativeAI`) when `GEMINI_API_KEY` is set, else OpenAI, else the authored fallback so graphs still exercise real LangGraph edges.
 
 ### Graphs
 
@@ -125,8 +125,10 @@ LangGraph state includes a `Recorder` instance (not checkpointed). There is no c
 | `AGENTS_PORT` | `43148` | runtime |
 | `OBSERVABILITY_URL` | `http://127.0.0.1:43147` | runtime ingest |
 | `AGENTS_URL` | `http://127.0.0.1:43148` | dashboard invoke proxy |
-| `OPENAI_API_KEY` | empty | both LLM paths |
-| `OPENAI_MODEL` | `gpt-4o-mini` | both LLM paths |
+| `GEMINI_API_KEY` | empty | both LLM paths (preferred) |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | both LLM paths |
+| `OPENAI_API_KEY` | empty | fallback LLM |
+| `OPENAI_MODEL` | `gpt-4o-mini` | fallback LLM |
 
 Scripts source `.env` from the repo root if present.
 

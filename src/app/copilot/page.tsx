@@ -52,7 +52,7 @@ export default function CopilotPage() {
         <p className="font-mono text-xs tracking-[0.25em] text-cyan-400/80">OBSERVABILITY AGENT</p>
         <h1 className="text-2xl font-semibold text-slate-50">Ask the fleet</h1>
         <p className="mt-1 text-sm text-slate-400">
-          A platform-side agent answers from traces, scores, and prompts. Set OPENAI_API_KEY for LLM answers; otherwise a local analyst still works.
+          A platform-side agent answers from traces, scores, and prompts. Set GEMINI_API_KEY (or OPENAI_API_KEY) for LLM answers; otherwise a local analyst still works.
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
