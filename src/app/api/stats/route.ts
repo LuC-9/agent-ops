@@ -23,6 +23,9 @@ export function GET() {
     avgConfidence: avg("confidence"),
     avgTrust: avg("trustScore"),
     openImprovements: store.improvements.filter((i) => i.status === "open").length,
+    auditEvents: store.audit.length,
+    aiCalls: store.usages.length,
+    aiTokens: store.usages.reduce((n, u) => n + u.promptTokens + u.completionTokens, 0),
     perAgent: stats,
   });
 }

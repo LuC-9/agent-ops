@@ -228,6 +228,8 @@ export const seedImprovements: Improvement[] = [
     severity: "high",
     relatedTraceIds: ["tr_sentinel_err"],
     status: "open",
+    source: "auto",
+    promptPatch: "If live metrics time out, continue from the last SLO snapshot and mark the run degraded.",
   },
   {
     id: "imp_atlas_citations",
@@ -242,5 +244,7 @@ export const seedImprovements: Improvement[] = [
     severity: "medium",
     relatedTraceIds: ["tr_atlas_2"],
     status: "open",
+    source: "analyst",
+    promptPatch: "Every factual claim must include a source_id. Fail the score node if citations == 0.",
   },
 ];

@@ -33,8 +33,10 @@ Base URL: `http://127.0.0.1:43147`
 | POST | `/api/ingest` | `IngestPayload` | Scored `Trace` |
 | GET | `/api/traces` | `agentId`, `status` | Trace list |
 | GET | `/api/traces/:id` | | Trace + agent |
-| GET/PATCH | `/api/improvements` | `{ id, status }` | Cards / accept-dismiss |
+| GET/PATCH | `/api/improvements` | `{ id, status }` | Cards / accept, apply, dismiss |
 | POST | `/api/improvements/generate` | | Analyze logs |
+| GET | `/api/audit` | | Agent uses and operator actions |
+| GET | `/api/usage` | | Model calls and tokens |
 | GET/POST | `/api/copilot` | `{ question }` | Observability agent chat |
 | POST | `/api/invoke` | `{ slug, input }` | Proxy to agent runtime |
 
@@ -100,22 +102,23 @@ FastAPI app: `agents/app/server.py`.
 
 - Lifespan: retry register for ~60s, then heartbeat every 20s.
 - `POST /invoke` `{ "slug", "input" }` compiles-once LangGraph and returns `{ trace, output, status }`.
-- Graphs live under `agents/app/graphs/`. Each node calls `Recorder.log` and `complete(system, user, fallback)`.
+- Graphs live under `agents/app/graphs/`. Each node calls `Recorder.log` and `complete(system, user, fallback, node=...)`.
+- `complete` records prompt/completion tokens into a contextvar bucket; ingest copies them onto the trace and into `store.usages`.
 
-`complete` (`agents/app/llm.py`) uses Gemini when `GEMINI_API_KEY` is set, else OpenAI, else the authored fallback. Calls are bounded by `LLM_TIMEOUT_S` (default 25s). Graphs use tools (`app/tools.py`): a citation retriever, policy cards, CWE scanner, and cached SLO snapshots. Sentinel routes `metrics_timeout` through a **fallback** node instead of failing closed. Ingest retries three times. The JSON store writes atomically (`*.tmp` + rename) and caps traces.
+`complete` (`agents/app/llm.py`) uses Gemini when `GEMINI_API_KEY` is set, else OpenAI, else the authored fallback. Calls are bounded by `LLM_TIMEOUT_S` (default 25s). Graphs use tools (`app/tools.py`): a citation retriever, policy cards, CWE scanner, and cached SLO snapshots. Sentinel routes `metrics_timeout` through a **fallback** node instead of failing closed. Ingest retries three times. The JSON store writes atomically (`*.tmp` + rename) and caps traces, audit events, and usages.
 
 ### Graphs
 
 **Atlas** — research brief with citation-aware scoring.  
 **Helix** — support policy; refuses invented refunds; escalation language boosts accuracy.  
 **Forge** — code review; SQL interpolation is treated as high residual risk.  
-**Sentinel** — incident runbook. If the user text contains `timeout` or `18:10`, `correlate` errors, `runbook` is skipped, and ingest status is `error`.
+**Sentinel** — incident runbook. If the user text contains `timeout` or `18:10`, `correlate` takes the fallback SLO snapshot and the run is **degraded ok**. `abort-runbook` fails closed.
 
 LangGraph state includes a `Recorder` instance (not checkpointed). There is no checkpointer in this slice; each invoke is a fresh thread.
 
 ## Persistence
 
-`src/lib/store.ts` reads/writes `data/observability.json`. First read seeds four agents, five traces, and two improvements so the UI is useful before the runtime starts. Registration overwrites seed agents in place (same ids/slugs).
+`src/lib/store.ts` reads/writes `data/observability.json`. First read seeds four agents, five traces, and two improvements so the UI is useful before the runtime starts. Empty audit/usage collections are backfilled from those traces. Registration overwrites seed agents in place (same ids/slugs).
 
 ## Environment
 
@@ -139,7 +142,9 @@ Scripts source `.env` from the repo root if present.
 | `/` | Fleet accuracy / confidence / trust, agent cards, latest requests |
 | `/agents/[id]` | System prompt, graph, scores, improvements, traces |
 | `/traces/[id]` | Request, response, prompt snapshot, log stream, scores |
-| `/improvements` | Generate from logs; accept / dismiss |
+| `/suggestions` | Generate from logs; accept / apply prompt patch / dismiss |
+| `/audit` | Immutable trail of invokes, suggestions, copilot, analyst |
+| `/usage` | Model calls, tokens, node, fallbacks |
 | `/copilot` | Observability agent chat |
 | `/playground` | Invoke live graphs |
 

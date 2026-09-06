@@ -74,13 +74,15 @@ This keeps an agent that is “sure but often wrong” from looking trustworthy.
 
 The dashboard is not only a viewer:
 
-1. **Analyze logs** (`POST /api/improvements/generate`) clusters error traces, low accuracy, missing citations, and short answers, then writes improvement cards (prompt, graph, tooling, evaluation, reliability).
-2. **Copilot** (`POST /api/copilot`) answers operator questions from the same store. With `GEMINI_API_KEY` (preferred) or `OPENAI_API_KEY` it refines the heuristic draft; without a key it still answers from telemetry.
-3. **Playground** executes a live graph so new evidence appears immediately.
+1. **Analyze logs** (`POST /api/improvements/generate`) clusters error traces, low accuracy, missing citations, and short answers, then writes improvement cards (prompt, graph, tooling, evaluation, reliability). Each run is audited and counted as AI usage.
+2. **Suggestions** (`/suggestions`) — accept, apply a prompt patch to the agent system prompt, or dismiss. Lifecycle events land in Audit.
+3. **Copilot** (`POST /api/copilot`) answers operator questions from the same store. With `GEMINI_API_KEY` (preferred) or `OPENAI_API_KEY` it refines the heuristic draft; without a key it still answers from telemetry. Questions and token counts are recorded.
+4. **Playground** executes a live graph so new evidence appears immediately. The runtime attaches per-node usage to ingest.
+5. **Audit** (`GET /api/audit`) and **AI usage** (`GET /api/usage`) are the operator ledgers for agent uses and model spend.
 
 ## 7. Data store
 
-A single JSON document at `data/observability.json` holds agents, traces, improvements, and copilot turns. The choice is intentional for local-first operation: zero extra services, easy to inspect, easy to delete.
+A single JSON document at `data/observability.json` holds agents, traces, improvements, copilot turns, audit events, and AI usages. The choice is intentional for local-first operation: zero extra services, easy to inspect, easy to delete.
 
 For production, replace the store with Postgres (traces) + an object store (prompt snapshots) without changing the ingest contract.
 
@@ -97,7 +99,7 @@ The agent runtime retries registration for ~60s so boot order is flexible.
 
 - **Offline capable** — deterministic LangChain/LangGraph paths when no API key is set.
 - **Explainable traces** — every node writes a log line; the score node writes the numbers the UI shows.
-- **Fail visible** — Sentinel’s correlate node times out on known phrases so reliability work is demoable.
+- **Fail visible** — Sentinel’s correlate node uses a snapshot fallback on known timeout phrases; `abort-runbook` still fails closed so reliability suggestions are demoable.
 - **Replaceable LLMs** — `app/llm.py` is the only OpenAI boundary on the agent side.
 
 ## 10. Out of scope (this slice)

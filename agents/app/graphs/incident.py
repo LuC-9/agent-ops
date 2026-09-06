@@ -62,7 +62,7 @@ def correlate_node(state: IncidentState) -> dict[str, Any]:
     rec.log("Correlated deploy window with latency jump", node="correlate")
     snap = metrics_snapshot(state["input"])
     fallback = f"Correlation using live path. Snapshot={snap}. Suspect: downstream timeout. Blast radius: checkout + payments."
-    correlated = complete(SYSTEM_PROMPT, f"Correlate this incident: {state['input']}\nMetrics: {snap}", fallback)
+    correlated = complete(SYSTEM_PROMPT, f"Correlate this incident: {state['input']}\nMetrics: {snap}", fallback, node="correlate")
     return {"correlated": correlated, "error": ""}
 
 
@@ -88,7 +88,7 @@ def runbook_node(state: IncidentState) -> dict[str, Any]:
         "Mitigation: freeze further deploys, roll back the latest release if error budget is burning, "
         "and add a 2s timeout with retry on payments-api. Do not drop tables or flush caches blindly."
     )
-    output = complete(SYSTEM_PROMPT, f"Write a runbook.\n{state['input']}\n{state['correlated']}", fallback)
+    output = complete(SYSTEM_PROMPT, f"Write a runbook.\n{state['input']}\n{state['correlated']}", fallback, node="runbook")
     if state.get("degraded"):
         output = "[DEGRADED: cached metrics]\n" + output
     return {"output": output}

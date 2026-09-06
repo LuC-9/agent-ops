@@ -45,7 +45,7 @@ def analyze_node(state: ReviewState) -> dict[str, Any]:
     static = scan_code(state["parsed"])
     rec.log("Static analysis + CWE mapping", node="analyze", data={"findings": len(static)})
     rendered = "\n".join(f"{f['severity'].upper()} {f['cwe']}: {f['title']}. Fix: {f['fix']}" for f in static)
-    findings = complete(SYSTEM_PROMPT, f"Expand these static findings with review notes:\n{rendered}\nCode:\n{state['parsed']}", rendered)
+    findings = complete(SYSTEM_PROMPT, f"Expand these static findings with review notes:\n{rendered}\nCode:\n{state['parsed']}", rendered, node="analyze")
     return {"findings": findings}
 
 
@@ -56,7 +56,7 @@ def rank_node(state: ReviewState) -> dict[str, Any]:
         f"{state['findings']}\n\nResidual risk: treat any high CWE as blocking until patched.\n"
         "Suggested tests: malicious payload and an integration test with a real driver."
     )
-    output = complete(SYSTEM_PROMPT, f"Rank and summarize:\n{state['findings']}", fallback)
+    output = complete(SYSTEM_PROMPT, f"Rank and summarize:\n{state['findings']}", fallback, node="rank")
     return {"output": output}
 
 

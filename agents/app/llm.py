@@ -1,11 +1,30 @@
 from __future__ import annotations
 
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from contextvars import ContextVar
+from typing import Any
+
 from langchain_core.messages import HumanMessage, SystemMessage
 
 _LLM_TIMEOUT_S = float(os.getenv("LLM_TIMEOUT_S", "25"))
 _EXECUTOR = ThreadPoolExecutor(max_workers=4)
+_USAGE: ContextVar[list[dict[str, Any]] | None] = ContextVar("llm_usage", default=None)
+
+
+def bind_usage_bucket() -> list[dict[str, Any]]:
+    bucket: list[dict[str, Any]] = []
+    _USAGE.set(bucket)
+    return bucket
+
+
+def take_usage() -> list[dict[str, Any]]:
+    return list(_USAGE.get() or [])
+
+
+def _tokens(text: str) -> int:
+    return max(1, (len(text) + 3) // 4)
 
 
 def _invoke(system: str, user: str) -> str:
@@ -38,11 +57,36 @@ def _invoke(system: str, user: str) -> str:
     raise RuntimeError("no_llm")
 
 
-def complete(system: str, user: str, fallback: str) -> str:
-    if not os.getenv("GEMINI_API_KEY") and not os.getenv("OPENAI_API_KEY"):
-        return fallback
-    try:
-        future = _EXECUTOR.submit(_invoke, system, user)
-        return future.result(timeout=_LLM_TIMEOUT_S)
-    except (FuturesTimeout, Exception):
-        return fallback
+def complete(system: str, user: str, fallback: str, *, node: str | None = None) -> str:
+    started = time.time()
+    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash") if os.getenv("GEMINI_API_KEY") else (
+        os.getenv("OPENAI_MODEL", "gpt-4o-mini") if os.getenv("OPENAI_API_KEY") else "deterministic-pack"
+    )
+    provider = "gemini" if os.getenv("GEMINI_API_KEY") else "openai" if os.getenv("OPENAI_API_KEY") else "local"
+    used_fallback = False
+    text = fallback
+    if os.getenv("GEMINI_API_KEY") or os.getenv("OPENAI_API_KEY"):
+        try:
+            future = _EXECUTOR.submit(_invoke, system, user)
+            text = future.result(timeout=_LLM_TIMEOUT_S)
+        except (FuturesTimeout, Exception):
+            used_fallback = True
+            text = fallback
+    else:
+        used_fallback = True
+    bucket = _USAGE.get()
+    if bucket is not None:
+        bucket.append(
+            {
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "purpose": "agent",
+                "model": model,
+                "node": node,
+                "promptTokens": _tokens(system + user),
+                "completionTokens": _tokens(text),
+                "latencyMs": int((time.time() - started) * 1000),
+                "fallback": used_fallback,
+                "provider": provider if not used_fallback else "local",
+            }
+        )
+    return text

@@ -8,6 +8,8 @@ import { applyDerivedStatuses } from "./status";
 import { sanitizeIngest } from "./validate";
 import type {
   Agent,
+  AiUsage,
+  AuditEvent,
   CopilotTurn,
   Improvement,
   IngestPayload,
@@ -25,6 +27,8 @@ function emptyStore(): StoreData {
     traces: structuredClone(seedTraces),
     improvements: structuredClone(seedImprovements),
     copilot: [],
+    audit: [],
+    usages: [],
   };
 }
 
@@ -41,10 +45,92 @@ function readStore(): StoreData {
     parsed.traces ??= [];
     parsed.improvements ??= [];
     parsed.copilot ??= [];
+    parsed.audit ??= [];
+    parsed.usages ??= [];
+    if (parsed.audit.length === 0 && parsed.traces.length) {
+      backfillIfEmpty(parsed);
+      atomicWrite(parsed);
+    }
     return parsed;
   } catch {
     return emptyStore();
   }
+}
+
+function pushAudit(store: StoreData, event: Omit<AuditEvent, "id" | "ts"> & { ts?: string }) {
+  store.audit.unshift({
+    id: `aud_${randomUUID().slice(0, 10)}`,
+    ts: event.ts ?? new Date().toISOString(),
+    action: event.action,
+    actor: event.actor,
+    agentId: event.agentId,
+    traceId: event.traceId,
+    suggestionId: event.suggestionId,
+    summary: event.summary,
+    data: event.data,
+  });
+}
+
+function pushUsage(store: StoreData, usage: Omit<AiUsage, "id">) {
+  store.usages.unshift({
+    id: `use_${randomUUID().slice(0, 10)}`,
+    ...usage,
+  });
+}
+
+function estimateTokens(text: string) {
+  return Math.max(1, Math.ceil(text.length / 4));
+}
+
+function backfillIfEmpty(store: StoreData) {
+  if (store.audit.length || store.usages.length) return;
+  for (const tr of [...store.traces].reverse()) {
+    pushAudit(store, {
+      ts: tr.endedAt,
+      action: "agent.invoke",
+      actor: "agent-runtime",
+      agentId: tr.agentId,
+      traceId: tr.id,
+      summary: `${tr.status} · ${tr.request.slice(0, 80)}`,
+      data: { accuracy: tr.accuracy, trust: tr.trustScore, model: tr.model },
+    });
+    const promptTokens = tr.tokens?.prompt ?? estimateTokens(tr.request + tr.systemPrompt);
+    const completionTokens = tr.tokens?.completion ?? estimateTokens(tr.response || "");
+    pushUsage(store, {
+      ts: tr.endedAt,
+      purpose: "agent",
+      model: tr.model ?? "unknown",
+      agentId: tr.agentId,
+      traceId: tr.id,
+      promptTokens,
+      completionTokens,
+      latencyMs: tr.latencyMs,
+      fallback: !tr.model || tr.model === "deterministic-pack",
+      provider: (tr.model ?? "").includes("gemini") ? "gemini" : tr.model?.includes("gpt") ? "openai" : "local",
+    });
+  }
+  for (const imp of store.improvements) {
+    pushAudit(store, {
+      ts: imp.createdAt,
+      action: "suggestion.created",
+      actor: imp.source === "analyst" ? "analyst" : "system",
+      agentId: imp.agentId,
+      suggestionId: imp.id,
+      summary: imp.title,
+    });
+  }
+}
+
+export function recordUsage(usage: Omit<AiUsage, "id">) {
+  mutate((store) => {
+    pushUsage(store, usage);
+  });
+}
+
+export function recordAudit(event: Omit<AuditEvent, "id" | "ts"> & { ts?: string }) {
+  mutate((store) => {
+    pushAudit(store, event);
+  });
 }
 
 function atomicWrite(store: StoreData) {
@@ -60,6 +146,8 @@ function mutate<T>(fn: (store: StoreData) => T): T {
   if (store.traces.length > LIMITS.maxTraces) {
     store.traces = store.traces.slice(0, LIMITS.maxTraces);
   }
+  if (store.audit.length > LIMITS.maxAudit) store.audit = store.audit.slice(0, LIMITS.maxAudit);
+  if (store.usages.length > LIMITS.maxUsages) store.usages = store.usages.slice(0, LIMITS.maxUsages);
   atomicWrite(store);
   return result;
 }
@@ -82,6 +170,12 @@ export function registerAgent(payload: RegisterAgentPayload): Agent {
       existing.endpoint = payload.endpoint ?? existing.endpoint;
       existing.status = "online";
       existing.lastHeartbeatAt = now;
+      pushAudit(store, {
+        action: "agent.register",
+        actor: "agent-runtime",
+        agentId: existing.id,
+        summary: `Re-registered ${existing.name} v${existing.version}`,
+      });
       return existing;
     }
     const agent: Agent = {
@@ -99,6 +193,12 @@ export function registerAgent(payload: RegisterAgentPayload): Agent {
       createdAt: now,
     };
     store.agents.push(agent);
+    pushAudit(store, {
+      action: "agent.register",
+      actor: "agent-runtime",
+      agentId: agent.id,
+      summary: `Onboarded ${agent.name}`,
+    });
     return agent;
   });
 }
@@ -171,6 +271,31 @@ export function ingestTrace(payload: IngestPayload): Trace {
     store.traces.unshift(trace);
     agent.lastHeartbeatAt = endedAt;
     agent.status = status === "error" ? "degraded" : "online";
+    pushAudit(store, {
+      action: "agent.invoke",
+      actor: "agent-runtime",
+      agentId: agent.id,
+      traceId: trace.id,
+      summary: `${status}${clean.degraded ? " (degraded)" : ""} · ${clean.request.slice(0, 80)}`,
+      data: { accuracy: trace.accuracy, trust: trace.trustScore, model: trace.model },
+    });
+    const promptTokens = clean.tokens?.prompt ?? estimateTokens(clean.request + (clean.systemPrompt ?? agent.systemPrompt));
+    const completionTokens = clean.tokens?.completion ?? estimateTokens(clean.response || "");
+    pushUsage(store, {
+      ts: endedAt,
+      purpose: "agent",
+      model: clean.model ?? "unknown",
+      agentId: agent.id,
+      traceId: trace.id,
+      promptTokens,
+      completionTokens,
+      latencyMs,
+      fallback: !clean.model || clean.model === "deterministic-pack",
+      provider: (clean.model ?? "").includes("gemini") ? "gemini" : (clean.model ?? "").includes("gpt") ? "openai" : "local",
+    });
+    for (const extra of clean.usages ?? []) {
+      pushUsage(store, { ...extra, agentId: extra.agentId ?? agent.id, traceId: extra.traceId ?? trace.id });
+    }
     autoImproveOnError(store, agent, trace);
     return trace;
   });
@@ -196,14 +321,42 @@ function autoImproveOnError(store: StoreData, agent: Agent, trace: Trace) {
     severity: "high",
     relatedTraceIds: [trace.id],
     status: "open",
+    source: "auto",
+  });
+  pushAudit(store, {
+    action: "suggestion.created",
+    actor: "system",
+    agentId: agent.id,
+    suggestionId: store.improvements[0].id,
+    traceId: trace.id,
+    summary: title,
   });
 }
 
-export function updateImprovement(id: string, status: Improvement["status"]) {
+export function updateImprovement(id: string, status: Improvement["status"], actor = "operator") {
   return mutate((store) => {
     const item = store.improvements.find((i) => i.id === id);
     if (!item) return null;
     item.status = status;
+    item.actor = actor;
+    if (status === "applied" && item.promptPatch) {
+      const agent = store.agents.find((a) => a.id === item.agentId);
+      if (agent && !agent.systemPrompt.includes(item.promptPatch)) {
+        agent.systemPrompt = `${agent.systemPrompt.trim()}\n\n${item.promptPatch}`;
+        item.appliedAt = new Date().toISOString();
+      }
+    }
+    const action =
+      status === "accepted" ? "suggestion.accepted" : status === "applied" ? "suggestion.applied" : status === "dismissed" ? "suggestion.dismissed" : "suggestion.created";
+    if (status !== "open") {
+      pushAudit(store, {
+        action,
+        actor,
+        agentId: item.agentId,
+        suggestionId: item.id,
+        summary: `${status}: ${item.title}`,
+      });
+    }
     return item;
   });
 }
@@ -212,19 +365,49 @@ export function addImprovements(items: Omit<Improvement, "id" | "createdAt">[]) 
   return mutate((store) => {
     const created: Improvement[] = items.map((item) => ({
       ...item,
+      source: item.source ?? "analyst",
       id: `imp_${randomUUID().slice(0, 8)}`,
       createdAt: new Date().toISOString(),
     }));
     store.improvements.unshift(...created);
+    for (const item of created) {
+      pushAudit(store, {
+        action: "suggestion.created",
+        actor: "analyst",
+        agentId: item.agentId,
+        suggestionId: item.id,
+        summary: item.title,
+      });
+    }
     return created;
   });
 }
 
-export function addCopilotTurns(turns: CopilotTurn[]) {
+export function addCopilotTurns(turns: CopilotTurn[], meta?: { model?: string; promptTokens?: number; completionTokens?: number; latencyMs?: number; fallback?: boolean }) {
   mutate((store) => {
     store.copilot.push(...turns);
     if (store.copilot.length > LIMITS.maxCopilotTurns) {
       store.copilot = store.copilot.slice(-LIMITS.maxCopilotTurns);
+    }
+    const question = turns.find((t) => t.role === "user");
+    if (question) {
+      pushAudit(store, {
+        action: "copilot.asked",
+        actor: "operator",
+        summary: question.content.slice(0, 120),
+      });
+    }
+    if (meta) {
+      pushUsage(store, {
+        ts: new Date().toISOString(),
+        purpose: "copilot",
+        model: meta.model ?? "unknown",
+        promptTokens: meta.promptTokens ?? estimateTokens(question?.content ?? ""),
+        completionTokens: meta.completionTokens ?? estimateTokens(turns.find((t) => t.role === "assistant")?.content ?? ""),
+        latencyMs: meta.latencyMs ?? 0,
+        fallback: meta.fallback ?? false,
+        provider: (meta.model ?? "").includes("gemini") ? "gemini" : (meta.model ?? "").includes("gpt") ? "openai" : "local",
+      });
     }
   });
 }

@@ -21,5 +21,6 @@ export function sanitizeIngest(body: IngestPayload): IngestPayload {
     response: clip(String(body.response ?? ""), LIMITS.maxResponseChars),
     error: body.error ? clip(String(body.error), 2000) : body.error,
     logs: (body.logs ?? []).slice(0, LIMITS.maxLogs),
+    usages: (body.usages ?? []).slice(0, 40),
   };
 }

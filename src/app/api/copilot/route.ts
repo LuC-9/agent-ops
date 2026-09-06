@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { json, corsHeaders } from "@/lib/http";
-import { answerCopilot, llmAugment } from "@/lib/observability-agent";
+import { answerCopilot, llmAugmentDetailed } from "@/lib/observability-agent";
 import { addCopilotTurns, getStore } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -35,13 +35,19 @@ export async function POST(req: Request) {
     improvements: store.improvements.slice(0, 10),
     heuristic,
   });
-  const answer = await llmAugment(
+  const detailed = await llmAugmentDetailed(
     `Answer the operator. Use only provided telemetry. Heuristic draft:\n${heuristic}\n\nTelemetry:\n${context}`,
     heuristic,
   );
   const now = new Date().toISOString();
   const user = { id: randomUUID(), role: "user" as const, content: question, createdAt: now };
-  const assistant = { id: randomUUID(), role: "assistant" as const, content: answer, createdAt: now };
-  addCopilotTurns([user, assistant]);
-  return json({ answer, messages: getStore().copilot });
+  const assistant = { id: randomUUID(), role: "assistant" as const, content: detailed.text, createdAt: now };
+  addCopilotTurns([user, assistant], {
+    model: detailed.model,
+    promptTokens: detailed.promptTokens,
+    completionTokens: detailed.completionTokens,
+    latencyMs: detailed.latencyMs,
+    fallback: detailed.fallback,
+  });
+  return json({ answer: detailed.text, messages: getStore().copilot });
 }

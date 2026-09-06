@@ -3,20 +3,29 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Activity, Bot, FlaskConical, ListTree, MessageSquare, Sparkles } from "lucide-react";
+import { Activity, Bot, ClipboardList, Cpu, FlaskConical, ListTree, MessageSquare, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const nav = [
   { href: "/", label: "Control room", icon: Activity },
   { href: "/traces", label: "Traces", icon: ListTree },
-  { href: "/improvements", label: "Improvements", icon: Sparkles },
+  { href: "/suggestions", label: "Suggestions", icon: Sparkles },
+  { href: "/audit", label: "Audit", icon: ClipboardList },
+  { href: "/usage", label: "AI usage", icon: Cpu },
   { href: "/copilot", label: "Copilot", icon: MessageSquare },
   { href: "/playground", label: "Run agents", icon: FlaskConical },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const [stats, setStats] = useState<{ online: number; agents: number; errors: number; openImprovements: number } | null>(null);
+  const [stats, setStats] = useState<{
+    online: number;
+    agents: number;
+    errors: number;
+    openImprovements: number;
+    auditEvents?: number;
+    aiCalls?: number;
+  } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -72,7 +81,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="text-cyan-300">{stats.online}</span>/{stats.agents} online
             </p>
             <p>
-              {stats.errors} errors · {stats.openImprovements} open fixes
+              {stats.errors} errors · {stats.openImprovements} fixes
+            </p>
+            <p>
+              {stats.auditEvents ?? 0} audit · {stats.aiCalls ?? 0} AI calls
             </p>
           </div>
         )}

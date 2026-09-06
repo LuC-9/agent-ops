@@ -48,7 +48,7 @@ def policy_node(state: SupportState) -> dict[str, Any]:
     rec = state["recorder"]
     policy = lookup_policy(state["intent"])
     rec.log("Loaded policy card", node="policy", data={"intent": state["intent"]})
-    refined = complete(SYSTEM_PROMPT, f"Apply this policy to the ticket.\nPolicy: {policy}\nTicket: {state['input']}", policy)
+    refined = complete(SYSTEM_PROMPT, f"Apply this policy to the ticket.\nPolicy: {policy}\nTicket: {state['input']}", policy, node="policy")
     return {"policy": refined}
 
 
@@ -61,7 +61,7 @@ def draft_node(state: SupportState) -> dict[str, Any]:
         "Next steps:\n1) Download last 30 days of usage\n2) Reply with the invoice ids\n"
         "I will not issue a credit from this chat."
     )
-    output = complete(SYSTEM_PROMPT, f"Draft a reply.\nTicket: {state['input']}\nPolicy: {state['policy']}", fallback)
+    output = complete(SYSTEM_PROMPT, f"Draft a reply.\nTicket: {state['input']}\nPolicy: {state['policy']}", fallback, node="draft")
     return {"output": output, "escalate": escalate}
 
 

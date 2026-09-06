@@ -38,6 +38,25 @@ export function analyzeStore(store: StoreData): Omit<Improvement, "id" | "create
           severity: stats.errorRate > 0.3 ? "high" : "medium",
           relatedTraceIds: errors.map((e) => e.id).slice(0, 5),
           status: "open",
+          source: "analyst",
+        });
+      }
+    }
+
+    if (stats.calibrationGap > 12 && traces.length >= 2) {
+      const title = `Recalibrate ${agent.name} confidence`;
+      if (!existingTitles.has(title)) {
+        ideas.push({
+          agentId: agent.id,
+          title,
+          rationale: `Calibration gap is ${stats.calibrationGap.toFixed(1)} points. The score node is reporting more certainty than judged accuracy.`,
+          suggestion:
+            "In the score node, cap confidence at accuracy + 8. If the last 5 traces have gap > 12, ask a clarifying question instead of answering.",
+          category: "evaluation",
+          severity: "medium",
+          relatedTraceIds: traces.slice(0, 4).map((t) => t.id),
+          status: "open",
+          source: "analyst",
         });
       }
     }
@@ -55,6 +74,7 @@ export function analyzeStore(store: StoreData): Omit<Improvement, "id" | "create
           severity: "medium",
           relatedTraceIds: traces.slice(0, 4).map((t) => t.id),
           status: "open",
+          source: "analyst",
         });
       }
     }
@@ -71,6 +91,7 @@ export function analyzeStore(store: StoreData): Omit<Improvement, "id" | "create
           severity: "medium",
           relatedTraceIds: uncited.map((t) => t.id).slice(0, 4),
           status: "open",
+          source: "analyst",
         });
       }
     }
@@ -88,6 +109,7 @@ export function analyzeStore(store: StoreData): Omit<Improvement, "id" | "create
           severity: "low",
           relatedTraceIds: vague.map((t) => t.id).slice(0, 4),
           status: "open",
+          source: "analyst",
         });
       }
     }
@@ -135,6 +157,12 @@ export function answerCopilot(store: StoreData, question: string): string {
       .join("\n\n");
   }
 
+  if (/audit|usage|token/.test(q)) {
+    const usages = store.usages ?? [];
+    const tokens = usages.reduce((n, u) => n + u.promptTokens + u.completionTokens, 0);
+    return `AI usages recorded: ${usages.length}. Estimated tokens: ${tokens}. Audit events: ${(store.audit ?? []).length}. Latest audit: ${store.audit?.[0]?.summary ?? "none"}.`;
+  }
+
   if (/improve|suggest|fix/.test(q)) {
     if (open.length === 0) {
       return "No open improvements yet. Ask me to analyze logs and I will propose prompt, graph, and reliability changes.";
@@ -159,7 +187,15 @@ Weakest agent by trust: ${worst.agent.name} (${worst.stats.avgTrust.toFixed(1)})
 const SYSTEM =
   "You are an observability engineer for LangGraph agents. Be specific. Cite trace ids and node names when present. Do not invent metrics.";
 
-async function callGemini(prompt: string): Promise<string | null> {
+type LlmCall = {
+  text: string;
+  promptTokens: number;
+  completionTokens: number;
+  model: string;
+  provider: "gemini" | "openai" | "local";
+};
+
+async function callGemini(prompt: string): Promise<LlmCall | null> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return null;
   const model = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
@@ -181,14 +217,23 @@ async function callGemini(prompt: string): Promise<string | null> {
   if (!res.ok) return null;
   const json = (await res.json()) as {
     candidates?: { content?: { parts?: { text?: string }[] } }[];
+    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
   };
   const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
-  return text || null;
+  if (!text) return null;
+  return {
+    text,
+    promptTokens: json.usageMetadata?.promptTokenCount ?? Math.ceil(prompt.length / 4),
+    completionTokens: json.usageMetadata?.candidatesTokenCount ?? Math.ceil(text.length / 4),
+    model,
+    provider: "gemini" as const,
+  };
 }
 
-async function callOpenAI(prompt: string): Promise<string | null> {
+async function callOpenAI(prompt: string): Promise<LlmCall | null> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return null;
+  const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -196,7 +241,7 @@ async function callOpenAI(prompt: string): Promise<string | null> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+      model,
       temperature: 0.2,
       messages: [
         { role: "system", content: SYSTEM },
@@ -205,14 +250,41 @@ async function callOpenAI(prompt: string): Promise<string | null> {
     }),
   });
   if (!res.ok) return null;
-  const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-  return json.choices?.[0]?.message?.content?.trim() || null;
+  const json = (await res.json()) as {
+    choices?: { message?: { content?: string } }[];
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  };
+  const text = json.choices?.[0]?.message?.content?.trim();
+  if (!text) return null;
+  return {
+    text,
+    promptTokens: json.usage?.prompt_tokens ?? Math.ceil(prompt.length / 4),
+    completionTokens: json.usage?.completion_tokens ?? Math.ceil(text.length / 4),
+    model,
+    provider: "openai",
+  };
 }
 
 export async function llmAugment(prompt: string, fallback: string): Promise<string> {
+  const detailed = await llmAugmentDetailed(prompt, fallback);
+  return detailed.text;
+}
+
+export async function llmAugmentDetailed(prompt: string, fallback: string): Promise<LlmCall & { fallback: boolean; latencyMs: number }> {
+  const started = Date.now();
   try {
-    return (await callGemini(prompt)) || (await callOpenAI(prompt)) || fallback;
+    const call = (await callGemini(prompt)) || (await callOpenAI(prompt));
+    if (call) return { ...call, fallback: false, latencyMs: Date.now() - started };
   } catch {
-    return fallback;
+    /* local fallback */
   }
+  return {
+    text: fallback,
+    promptTokens: Math.ceil(prompt.length / 4),
+    completionTokens: Math.ceil(fallback.length / 4),
+    model: "local-analyst",
+    provider: "local",
+    fallback: true,
+    latencyMs: Date.now() - started,
+  };
 }

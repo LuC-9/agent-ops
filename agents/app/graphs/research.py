@@ -43,7 +43,7 @@ def plan_node(state: ResearchState) -> dict[str, Any]:
     fallback = (
         f"Sub-queries: (1) definitions (2) recent changes (3) operational caveats.\nQuestion: {state['input']}"
     )
-    plan = complete(SYSTEM_PROMPT, f"Plan research steps for: {state['input']}", fallback)
+    plan = complete(SYSTEM_PROMPT, f"Plan research steps for: {state['input']}", fallback, node="plan")
     return {"plan": plan, "cited": False}
 
 
@@ -53,7 +53,7 @@ def gather_node(state: ResearchState) -> dict[str, Any]:
     rec.log(f"Retriever returned {len(hits)} chunks", node="gather", data={"ids": [h.source_id for h in hits]})
     pack = "\n".join(f"[{h.source_id}] {h.title}: {h.snippet}" for h in hits)
     fallback = pack
-    evidence = complete(SYSTEM_PROMPT, f"Rewrite evidence for plan:\n{state['plan']}\nPack:\n{pack}", fallback)
+    evidence = complete(SYSTEM_PROMPT, f"Rewrite evidence for plan:\n{state['plan']}\nPack:\n{pack}", fallback, node="gather")
     cited = any(h.source_id in evidence for h in hits) or "source" in evidence.lower()
     return {"evidence": evidence, "cited": cited}
 
@@ -79,6 +79,7 @@ def synthesize_node(state: ResearchState) -> dict[str, Any]:
         SYSTEM_PROMPT,
         f"Write the final brief. Cite source_id values.\nPlan:\n{state['plan']}\nEvidence:\n{state['evidence']}",
         fallback,
+        node="synthesize",
     )
     return {"output": output}
 

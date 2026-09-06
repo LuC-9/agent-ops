@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app.graphs import code_review, incident, research, support
+from app.llm import bind_usage_bucket, take_usage
 from app.telemetry import Recorder, heartbeat, register_agent
 
 MODULES = {
@@ -89,6 +90,7 @@ def _run_graph(slug: str, body: InvokeBody) -> dict:
     graph = GRAPHS[slug]
     rec = Recorder(slug, mod.SPEC["systemPrompt"], MODEL, thread_id=body.thread_id or str(uuid.uuid4()))
     rec.log("Graph compile cached; starting run")
+    bind_usage_bucket()
     state = graph.invoke(
         {
             "input": body.input,
@@ -113,6 +115,7 @@ def _run_graph(slug: str, body: InvokeBody) -> dict:
         },
         {"recursion_limit": 12},
     )
+    rec.usages = take_usage()
     abort_error = state.get("abort") and state.get("error")
     error = (state.get("error") if abort_error else None) or None
     status = "error" if error else "ok"

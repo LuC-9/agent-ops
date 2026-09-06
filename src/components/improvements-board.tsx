@@ -45,10 +45,10 @@ export function ImprovementsBoard({
     <div className="mx-auto max-w-4xl space-y-6 p-4 md:p-8">
       <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <p className="font-mono text-xs tracking-[0.25em] text-cyan-400/80">AGENTIC ANALYST</p>
+          <p className="font-mono text-xs tracking-[0.25em] text-cyan-400/80">SUGGESTIONS</p>
           <h1 className="text-2xl font-semibold text-slate-50">Suggested improvements</h1>
           <p className="mt-1 text-sm text-slate-400">
-            Reads error logs, low-accuracy traces, and system prompts, then proposes graph and prompt patches. Errors also auto-open a reliability card on ingest.
+            Auto-opened on ingest errors, plus analyst patches from logs. Accept, apply a prompt patch, or dismiss — each action is audited.
           </p>
         </div>
         <Button onClick={generate} disabled={busy}>
@@ -64,6 +64,7 @@ export function ImprovementsBoard({
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={item.severity === "high" ? "destructive" : "secondary"}>{item.severity}</Badge>
                 <Badge variant="outline">{item.category}</Badge>
+                {item.source && <Badge variant="outline">{item.source}</Badge>}
                 <span className="text-xs text-slate-500">{agent?.name}</span>
                 <span className="ml-auto text-xs text-slate-500">{item.status}</span>
               </div>
@@ -72,9 +73,13 @@ export function ImprovementsBoard({
               <pre className="mt-3 whitespace-pre-wrap rounded bg-black/30 p-3 font-mono text-xs text-cyan-100/90">
                 {item.suggestion}
               </pre>
+              {item.promptPatch && (
+                <p className="mt-2 text-xs text-amber-200/90">Prompt patch: {item.promptPatch}</p>
+              )}
               {item.status === "open" && (
-                <div className="mt-3 flex gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <Button size="sm" onClick={() => setStatus(item.id, "accepted")}>Accept</Button>
+                  <Button size="sm" variant="secondary" onClick={() => setStatus(item.id, "applied")}>Apply to prompt</Button>
                   <Button size="sm" variant="outline" onClick={() => setStatus(item.id, "dismissed")}>Dismiss</Button>
                 </div>
               )}

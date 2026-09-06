@@ -38,6 +38,7 @@ class Recorder:
         self.logs: list[dict[str, Any]] = []
         self.started = time.time()
         self.started_at = _now()
+        self.usages: list[dict[str, Any]] = []
 
     def log(self, message: str, *, node: str | None = None, level: str = "info", data: dict[str, Any] | None = None) -> None:
         self.logs.append(
@@ -78,6 +79,11 @@ class Recorder:
             "model": self.model,
             "threadId": self.thread_id,
             "degraded": degraded,
+            "tokens": {
+                "prompt": sum(int(u.get("promptTokens") or 0) for u in self.usages),
+                "completion": sum(int(u.get("completionTokens") or 0) for u in self.usages),
+            },
+            "usages": self.usages,
         }
         url = f"{OBSERVABILITY_URL}/api/ingest"
         try:

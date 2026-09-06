@@ -6,12 +6,14 @@ Four agents ship in this repo and onboard themselves when the runtime starts:
 
 | Slug | Agent | Graph |
 | --- | --- | --- |
-| `atlas-research` | Atlas Research | plan → gather → synthesize → score |
-| `helix-support` | Helix Support | classify → policy → draft → score |
+| `atlas-research` | Atlas Research | plan → gather → regather → synthesize → score |
+| `helix-support` | Helix Support | classify → policy → draft → escalate → score |
 | `forge-code-review` | Forge Code Review | parse → analyze → rank → score |
-| `sentinel-incident` | Sentinel Incident | triage → correlate → runbook → score |
+| `sentinel-incident` | Sentinel Incident | triage → correlate → fallback → runbook → score |
 
-Sentinel will **fail on purpose** when the prompt contains `timeout` or `18:10`, so you can watch error logs and generated improvements.
+Sentinel uses a **cached SLO snapshot** (degraded OK) when the prompt contains `timeout` or `18:10`. Use `abort-runbook` to fail closed and auto-open a reliability suggestion.
+
+Each invoke writes an **audit event** and **AI usage** rows (per LangGraph node when Gemini/OpenAI is used). Open **Suggestions**, **Audit**, and **AI usage** in the nav.
 
 ## Run locally
 

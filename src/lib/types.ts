@@ -8,7 +8,45 @@ export type ImprovementCategory =
   | "evaluation"
   | "reliability";
 export type ImprovementSeverity = "low" | "medium" | "high";
-export type ImprovementStatus = "open" | "accepted" | "dismissed";
+export type ImprovementStatus = "open" | "accepted" | "dismissed" | "applied";
+export type AuditAction =
+  | "agent.register"
+  | "agent.heartbeat"
+  | "agent.invoke"
+  | "suggestion.created"
+  | "suggestion.accepted"
+  | "suggestion.dismissed"
+  | "suggestion.applied"
+  | "copilot.asked"
+  | "analyst.run";
+export type AiPurpose = "agent" | "copilot" | "analyst" | "tool";
+
+export interface AuditEvent {
+  id: string;
+  ts: string;
+  action: AuditAction;
+  actor: string;
+  agentId?: string;
+  traceId?: string;
+  suggestionId?: string;
+  summary: string;
+  data?: Record<string, unknown>;
+}
+
+export interface AiUsage {
+  id: string;
+  ts: string;
+  purpose: AiPurpose;
+  model: string;
+  agentId?: string;
+  traceId?: string;
+  node?: string;
+  promptTokens: number;
+  completionTokens: number;
+  latencyMs: number;
+  fallback: boolean;
+  provider: "gemini" | "openai" | "local";
+}
 
 export interface AgentGraph {
   nodes: string[];
@@ -71,6 +109,10 @@ export interface Improvement {
   severity: ImprovementSeverity;
   relatedTraceIds: string[];
   status: ImprovementStatus;
+  source?: "auto" | "analyst" | "operator";
+  promptPatch?: string;
+  appliedAt?: string;
+  actor?: string;
 }
 
 export interface CopilotTurn {
@@ -85,6 +127,8 @@ export interface StoreData {
   traces: Trace[];
   improvements: Improvement[];
   copilot: CopilotTurn[];
+  audit: AuditEvent[];
+  usages: AiUsage[];
 }
 
 export interface AgentStats {
@@ -117,6 +161,7 @@ export interface IngestPayload {
   tokens?: { prompt: number; completion: number };
   threadId?: string;
   degraded?: boolean;
+  usages?: Omit<AiUsage, "id">[];
 }
 
 export interface RegisterAgentPayload {
