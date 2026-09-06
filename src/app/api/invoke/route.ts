@@ -2,6 +2,7 @@ import { json, corsHeaders } from "@/lib/http";
 import { LIMITS } from "@/lib/limits";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 90;
 
 export function OPTIONS() {
   return new Response(null, { headers: corsHeaders });

@@ -212,6 +212,7 @@ async function callGemini(prompt: string): Promise<LlmCall | null> {
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         generationConfig: { temperature: 0.2 },
       }),
+      signal: AbortSignal.timeout(20_000),
     },
   );
   if (!res.ok) return null;
@@ -248,6 +249,7 @@ async function callOpenAI(prompt: string): Promise<LlmCall | null> {
         { role: "user", content: prompt },
       ],
     }),
+    signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) return null;
   const json = (await res.json()) as {

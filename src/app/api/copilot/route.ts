@@ -4,6 +4,7 @@ import { answerCopilot, llmAugmentDetailed } from "@/lib/observability-agent";
 import { addCopilotTurns, getStore } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export function OPTIONS() {
   return new Response(null, { headers: corsHeaders });
@@ -21,7 +22,13 @@ export async function POST(req: Request) {
   const heuristic = answerCopilot(store, question);
   const context = JSON.stringify({
     question,
-    agents: store.agents,
+    agents: store.agents.map((a) => ({
+      id: a.id,
+      name: a.name,
+      slug: a.slug,
+      status: a.status,
+      role: a.role,
+    })),
     statsHint: store.traces.slice(0, 15).map((t) => ({
       id: t.id,
       agentId: t.agentId,
@@ -30,9 +37,14 @@ export async function POST(req: Request) {
       confidence: t.confidence,
       trustScore: t.trustScore,
       error: t.error,
-      request: t.request,
+      request: t.request.slice(0, 160),
     })),
-    improvements: store.improvements.slice(0, 10),
+    improvements: store.improvements.slice(0, 8).map((i) => ({
+      title: i.title,
+      status: i.status,
+      agentId: i.agentId,
+      suggestion: i.suggestion.slice(0, 240),
+    })),
     heuristic,
   });
   const detailed = await llmAugmentDetailed(
