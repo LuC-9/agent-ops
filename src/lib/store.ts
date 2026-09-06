@@ -363,20 +363,29 @@ export function updateImprovement(id: string, status: Improvement["status"], act
 
 export function addImprovements(items: Omit<Improvement, "id" | "createdAt">[]) {
   return mutate((store) => {
-    const created: Improvement[] = items.map((item) => ({
-      ...item,
-      source: item.source ?? "analyst",
-      id: `imp_${randomUUID().slice(0, 8)}`,
-      createdAt: new Date().toISOString(),
-    }));
-    store.improvements.unshift(...created);
-    for (const item of created) {
+    const created: Improvement[] = [];
+    for (const item of items) {
+      const dup = store.improvements.some(
+        (i) =>
+          i.agentId === item.agentId &&
+          i.title === item.title &&
+          (i.status === "open" || i.status === "applied" || i.status === "accepted"),
+      );
+      if (dup) continue;
+      const row: Improvement = {
+        ...item,
+        source: item.source ?? "analyst",
+        id: `imp_${randomUUID().slice(0, 8)}`,
+        createdAt: new Date().toISOString(),
+      };
+      store.improvements.unshift(row);
+      created.push(row);
       pushAudit(store, {
         action: "suggestion.created",
         actor: "analyst",
-        agentId: item.agentId,
-        suggestionId: item.id,
-        summary: item.title,
+        agentId: row.agentId,
+        suggestionId: row.id,
+        summary: row.title,
       });
     }
     return created;
