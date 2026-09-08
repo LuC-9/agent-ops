@@ -17,7 +17,9 @@ Each invoke writes an **audit event** and **AI usage** rows (per LangGraph node 
 
 ## Run locally
 
-Use two terminals.
+Full clone → install → demo: **[docs/LOCAL_RUN.md](docs/LOCAL_RUN.md)**.
+
+Two terminals:
 
 ```bash
 chmod +x run-observability.sh run-agents.sh
@@ -43,6 +45,8 @@ Then open **Run agents** in the UI and invoke a prompt. Traces land in the contr
 
 ## Docs
 
+- [Run on a laptop](docs/LOCAL_RUN.md) — prerequisites, two processes, health checks, curl demo, troubleshooting
+- [Interview brief](docs/INTERVIEW.md) — pitch, architecture, scoring, graphs, tradeoffs, expected questions
 - [High-level design](docs/HLD.md)
 - [Technical documentation](docs/TECHNICAL.md)
 

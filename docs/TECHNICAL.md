@@ -152,6 +152,8 @@ Pages poll stats/traces every 5s on the control room.
 
 ## Local operations
 
+Step-by-step laptop setup, demo curls, and troubleshooting: [LOCAL_RUN.md](./LOCAL_RUN.md).
+
 ```bash
 ./run-observability.sh
 ./run-agents.sh
