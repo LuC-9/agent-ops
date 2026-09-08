@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { buttonVariants } from "@/components/ui/button";
 import type { CopilotTurn } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -27,11 +27,6 @@ export function CopilotChat({ initial }: { initial: CopilotTurn[] }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const inFlight = useRef(false);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    setReady(true);
-  }, []);
 
   async function send(raw: string) {
     const text = raw.trim();
@@ -148,7 +143,7 @@ export function CopilotChat({ initial }: { initial: CopilotTurn[] }) {
           name="question"
           rows={4}
           placeholder="Ask about a trace, agent, or score…"
-          disabled={!ready || busy}
+          disabled={busy}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) {
               if (e.key === "Enter" && e.shiftKey) return;
@@ -161,7 +156,7 @@ export function CopilotChat({ initial }: { initial: CopilotTurn[] }) {
         />
         <button
           type="button"
-          disabled={!ready || busy}
+          disabled={busy}
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -174,7 +169,7 @@ export function CopilotChat({ initial }: { initial: CopilotTurn[] }) {
             "relative z-20 h-11 w-full cursor-pointer disabled:cursor-wait sm:w-48",
           )}
         >
-          {busy ? "Thinking…" : ready ? "Send" : "Loading…"}
+          {busy ? "Thinking…" : "Send"}
         </button>
       </form>
     </div>
