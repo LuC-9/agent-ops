@@ -216,6 +216,7 @@ Restart the dashboard (or trigger any API). The store reseeds. `agents/.venv` an
 | Gemini errors / empty LLM | Remove the key to use fallback, or check `GEMINI_MODEL`. |
 | Stale UI | Restart `./run-observability.sh`. Delete `.next` only if HMR is stuck: `rm -rf .next`. |
 | Port already allocated | `lsof -i :43147` / `:43148` and stop the old process, or change `.env`. |
+| Browser `ERR_ADDRESS_INVALID` / timeout on `http://0.0.0.0:43147` | `0.0.0.0` is only a **bind** address. Open **http://127.0.0.1:43147** (or `http://localhost:43147`). Next.js prints `0.0.0.0` when it listens on all interfaces; Chrome/Edge/Safari will not use that as a destination. |
 
 ## Layout reminder
 
