@@ -38,9 +38,67 @@ npm -v
 
 If `python3 -m venv` fails with ensurepip, the agent script falls back to `virtualenv` automatically.
 
-### Windows
+### Windows (what to actually do)
 
-Use **WSL2 (Ubuntu)** and follow the Ubuntu steps inside WSL. Git Bash can work if `python3` and `node` are on PATH, but WSL is the supported path.
+**Use WSL2 Ubuntu.** The run scripts are bash (`run-observability.sh`, `run-agents.sh`). PowerShell cannot run them as-is.
+
+1. Install **WSL** in PowerShell (Admin):
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+Reboot if Windows asks, then open **Ubuntu** from the Start menu.
+
+2. Inside Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y git curl python3 python3-pip python3-venv
+# Node 20+:
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+
+git --version
+node -v
+python3 --version
+```
+
+3. Origin CLI + clone `luc9/agent-ops`:
+
+```bash
+curl -fsSL https://downloads.cursor.com/origin/install.sh | sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+origin --version
+
+# Paste your Cursor API key only in the terminal, never into git remotes
+origin auth login --api-key 'crsr_…'
+origin repo clone luc9/agent-ops
+cd agent-ops
+```
+
+If `origin` says `command not found`, `source ~/.bashrc` again. If clone returns **403**, sign-in still succeeded — retry:
+
+```bash
+git clone https://origin.cursor.com/luc9/agent-ops.git
+cd agent-ops
+```
+
+4. Run (two Ubuntu terminals):
+
+```bash
+chmod +x run-observability.sh run-agents.sh
+./run-observability.sh
+```
+
+```bash
+./run-agents.sh
+```
+
+5. In **Windows Chrome/Edge**, open **http://127.0.0.1:43147** — not `http://0.0.0.0:43147`.
+
+Do not put the `crsr_…` key in the clone URL. Git would save it in `.git/config`.
 
 Confirm:
 
@@ -79,9 +137,7 @@ Then:
 git pull origin main
 ```
 
-### Windows
-
-Use **WSL2 (Ubuntu)** and the same commands. After install, put `~/.local/bin` on `PATH` if `origin` is not found.
+Windows clone and run: see **Windows (what to actually do)** under Prerequisites.
 
 ## 2. Environment file (optional)
 
