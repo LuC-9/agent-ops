@@ -53,16 +53,35 @@ python3 --version
 
 ## 1. Get the code
 
-```bash
-git clone <this-repo-url>
-cd <repo-directory>
-```
+### HTTPS (Origin)
 
-If you already have the repo:
+This project lives at `luc9/agent-ops`. Do **not** put an API key in the remote URL (Git stores remotes in `.git/config`).
 
 ```bash
-git pull
+# macOS / Linux / WSL
+origin auth login --api-key "$CURSOR_API_KEY"
+origin repo clone luc9/agent-ops
+cd agent-ops
 ```
+
+If `origin` is not installed: https://cursor.com/docs/origin/cli
+
+If `origin repo clone` returns 403, clone with Git and the Origin credential helper (username `x-access-token`, password from `origin credential-helper`):
+
+```bash
+git clone https://origin.cursor.com/luc9/agent-ops.git
+cd agent-ops
+```
+
+Then:
+
+```bash
+git pull origin main
+```
+
+### Windows
+
+Use **WSL2 (Ubuntu)** and the same commands. After install, put `~/.local/bin` on `PATH` if `origin` is not found.
 
 ## 2. Environment file (optional)
 
