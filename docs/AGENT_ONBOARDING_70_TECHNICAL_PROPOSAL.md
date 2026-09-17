@@ -1,21 +1,20 @@
-# Technical Proposal: Onboarding 70 AI Agents to Northstar Observability
+# Technical Proposal: Onboarding Multiple AI Agents to Northstar Observability
 
-**Author:** Engineering Team  
+**Author:** Aarsh Mishra  
 **Date:** 2026-09-17  
 **Status:** Draft — Pending EM Review  
-**Audience:** Engineering Manager, Platform Engineering, Agent Developers
 
 ---
 
 ## Executive Summary
 
-We operate **70 AI agents** across multiple frameworks (LangGraph, LangChain, LiveKit, cron jobs, standalone services) deployed on **SSH-accessible VMs**. These agents vary wildly in:
+We operate **multiple AI agents** across multiple frameworks (LangGraph, LangChain, LiveKit, cron jobs, standalone services) deployed on **SSH-accessible VMs**. These agents vary wildly in:
 
 - **Framework** — LangGraph, LangChain, LiveKit, raw Python/Node scripts, cron-scheduled jobs
 - **Logging maturity** — some emit structured logs, some log to stdout, most have no logging at all
 - **Access level** — some we can modify source code, some we can only access via SSH terminal, some are black boxes we can only observe externally
 
-This proposal defines a **scenario-based onboarding strategy** to bring all 70 agents under the Northstar observability platform with **full-depth telemetry**: per-node traces, token counts, log streams, and trust scoring.
+This proposal defines a **scenario-based onboarding strategy** to bring all agents under the Northstar observability platform with **full-depth telemetry**: per-node traces, token counts, log streams, and trust scoring.
 
 > [!IMPORTANT]
 > The Northstar platform will be deployed as a **centralized instance on a dedicated VM**, accessible over the internal network. All agents push telemetry to it over HTTP.
@@ -71,14 +70,14 @@ flowchart LR
 | **Audit Trail** | Immutable log of invocations, suggestions, operator actions |
 | **AI Usage Tracking** | Model calls, tokens, cost per agent/node |
 
-### What Needs to Change for 70-Agent Scale
+### What Needs to Change for Multi-Agent Fleet Scale
 | Area | Current | Required |
 |:---|:---|:---|
 | **Deployment** | localhost | Centralized VM, accessible over internal network |
 | **Persistence** | Single JSON file | PostgreSQL + Object Store (recommended) |
 | **Agent Integration** | Tightly-coupled Python `Recorder` class | Multi-language SDK + agentless options |
 | **Network** | CORS open, localhost only | Internal network, API key auth, TLS |
-| **Capacity** | 5 agents, ~265 traces | 70 agents, thousands of traces/day |
+| **Capacity** | 5 agents, ~265 traces | Fleet of agents, thousands of traces/day |
 
 ---
 
@@ -135,7 +134,7 @@ Content-Type: application/json
 
 ## 3. Agent Classification Matrix
 
-Before choosing an onboarding approach, each of the 70 agents must be classified along these axes:
+Before choosing an onboarding approach, each agent must be classified along these axes:
 
 ```mermaid
 flowchart TD
@@ -156,16 +155,16 @@ flowchart TD
 
 ### Classification Table
 
-| Classification | Source Access | Logs Exist | Terminal Access | Recommended Approach | Estimated Count |
+| Classification | Source Access | Logs Exist | Terminal Access | Recommended Approach | Estimated Distribution |
 |:---|:---:|:---:|:---:|:---|:---:|
-| **Tier 1 — Full Control** | ✅ | ✅ or can add | ✅ | SDK Instrumentation | ~25 |
-| **Tier 2 — Log Files Available** | ❌ | ✅ | ✅ | OTel Collector or Fluent Bit | ~15 |
-| **Tier 3 — Terminal Only** | ❌ | ❌ | ✅ | Enable logging, then Tier 1 or 2 | ~15 |
-| **Tier 4 — Network Intercept** | ❌ | ❌ | ❌ | HTTP Proxy / API Gateway intercept | ~10 |
-| **Tier 5 — OTel Native** | varies | varies | varies | OTel Collector Bridge | ~5 |
+| **Tier 1 — Full Control** | ✅ | ✅ or can add | ✅ | SDK Instrumentation | ~35% |
+| **Tier 2 — Log Files Available** | ❌ | ✅ | ✅ | OTel Collector or Fluent Bit | ~20% |
+| **Tier 3 — Terminal Only** | ❌ | ❌ | ✅ | Enable logging, then Tier 1 or 2 | ~20% |
+| **Tier 4 — Network Intercept** | ❌ | ❌ | ❌ | HTTP Proxy / API Gateway intercept | ~15% |
+| **Tier 5 — OTel Native** | varies | varies | varies | OTel Collector Bridge | ~10% |
 
 > [!NOTE]
-> These counts are estimates. The first step of rollout (Week 1) is an **audit** to classify all 70 agents into these tiers.
+> These distribution percentages are initial estimates. The first step of rollout (Week 1) is an **audit** to classify all target agents into these tiers.
 
 ---
 
@@ -1260,11 +1259,11 @@ flowchart TD
 
 ## 6. Centralized Deployment & Medallion Data Pipeline Architecture
 
-To onboard all 70 agents—which vary widely in framework, log maturity, and payload structure—into a single observability pane, Northstar utilizes a **centralized architecture** backed by a **single unified database** and a **Medallion Data Pipeline (Bronze → Silver → Gold)** for data filtration, cleaning, and parameter harmonization.
+To onboard multiple agents—which vary widely in framework, log maturity, and payload structure—into a single observability pane, Northstar utilizes a **centralized architecture** backed by a **single unified database** and a **Medallion Data Pipeline (Bronze → Silver → Gold)** for data filtration, cleaning, and parameter harmonization.
 
 ```mermaid
 flowchart TB
-    subgraph Agents["70 Onboarded Agents (5 Approaches)"]
+    subgraph Agents["Multiple Onboarded Agents (5 Approaches)"]
         ApproachA["Approach A: Northstar SDK<br/>(LangGraph, LangChain, LiveKit)"]
         ApproachB["Approach B: OTel Collector Bridge<br/>(OTLP Spans / Traces)"]
         ApproachC["Approach C: Fluent Bit<br/>(Syslog / JSON Logs)"]
@@ -1314,7 +1313,7 @@ Regardless of whether telemetry originates from an SDK-instrumented LangGraph ag
 
 ### 6.2 Medallion Architecture Data Pipeline (Bronze → Silver → Gold)
 
-Because the 70 agents use different logging formats and field parameter names (e.g., `prompt` vs `input` vs `user_query`), telemetry cannot be blindly inserted into analytical tables. Northstar applies a **3-tier Medallion Data Pipeline** to clean, filter, and normalize all incoming telemetry:
+Because agents across teams use different logging formats and field parameter names (e.g., `prompt` vs `input` vs `user_query`), telemetry cannot be blindly inserted into analytical tables. Northstar applies a **3-tier Medallion Data Pipeline** to clean, filter, and normalize all incoming telemetry:
 
 ```mermaid
 flowchart LR
@@ -1371,7 +1370,7 @@ flowchart LR
 3. **Parameter Harmonization (Cross-Framework Mapping)**:
    Different agent frameworks and custom scripts emit different parameter names for identical concepts. The Silver cleaning layer normalizes parameter names into Northstar standard fields:
 
-   | Concept | Incoming Parameter Variations Across 70 Agents | Harmonized Northstar Standard Field |
+   | Concept | Incoming Parameter Variations Across Multiple Agents | Harmonized Northstar Standard Field |
    |:---|:---|:---|
    | **Input Prompt** | `prompt`, `input`, `user_query`, `content`, `message`, `query`, `input_text` | `request` |
    | **Output Response** | `response`, `output`, `answer`, `result`, `completion`, `output_text` | `response` |
@@ -1613,7 +1612,7 @@ Content-Type: application/x-protobuf (or application/json)
 
 ### Agent Inventory File
 
-Maintain a single source of truth for all 70 agents:
+Maintain a single source of truth for all onboarded agents:
 
 ```yaml
 # agents-inventory.yml
@@ -1710,33 +1709,33 @@ for agent in inventory["agents"]:
 
 ## 11. Rollout Plan (3.5-Month Schedule)
 
-The onboarding of all 70 agents is structured across a **14-week (3.5-month)** phased rollout. This timeframe ensures robust foundation building, thorough agent audit, incremental tier-by-tier onboarding, validation of the Medallion Data Pipeline, and extensive load testing.
+The onboarding of all target agents is structured across a **14-week (3.5-month)** phased rollout. This timeframe ensures robust foundation building, thorough agent audit, incremental tier-by-tier onboarding, validation of the Medallion Data Pipeline, and extensive load testing.
 
 ```mermaid
 gantt
-    title 70-Agent Onboarding Rollout (14 Weeks / 3.5 Months)
+    title Multi-Agent Onboarding Rollout (14 Weeks / 3.5 Months)
     dateFormat  YYYY-MM-DD
     axisFormat  W%V
     
     section Phase 1: Foundation (W1-3)
-    Audit & classify all 70 agents            :a1, 2026-10-01, 7d
+    Audit & classify all agents               :a1, 2026-10-01, 7d
     Deploy Central Northstar VM & Database   :a2, after a1, 5d
     Build & deploy Medallion Pipeline        :a3, after a2, 5d
     Publish Python & Node.js SDKs v1         :a4, after a2, 7d
     
     section Phase 2: Tier 1 SDK (W4-6)
-    Onboard 25 Tier 1 Agents with SDK        :b1, after a4, 14d
+    Onboard Tier 1 Agents with SDK           :b1, after a4, 14d
     Framework Handlers (LangGraph/LiveKit)   :b2, after a4, 10d
     
     section Phase 3: Tier 2 & 5 (W7-9)
     Deploy OTel Collectors & Exporter        :c1, after b1, 7d
     Deploy Fluent Bit & Lua Transforms       :c2, after b1, 10d
-    Onboard 25 Tier 2 + Tier 5 Agents        :c3, after c1, 10d
+    Onboard Tier 2 + Tier 5 Agents           :c3, after c1, 10d
     
     section Phase 4: Tier 3 & 4 (W10-12)
     SSH Remote Extraction (Tier 3)           :d1, after c3, 10d
     Deploy HTTP Proxies (Tier 4)             :d2, after c3, 7d
-    Onboard remaining 20 Tier 3/4 Agents     :d3, after d1, 7d
+    Onboard remaining Tier 3/4 Agents        :d3, after d1, 7d
     
     section Phase 5: Validation (W13-14)
     Validate Medallion Pipeline & Harmonization :e1, after d3, 5d
@@ -1747,13 +1746,13 @@ gantt
 
 ### Phased Weekly Milestones
 
-| Phase | Weeks | Milestone & Deliverables | Cumulative Agents Onboarded |
+| Phase | Weeks | Milestone & Deliverables | Onboarding Progress |
 |:---:|:---:|:---|:---:|
-| **Phase 1** | **W1–W3** | **Platform Foundation & Data Pipeline**: Dedicated Northstar VM set up; Central PostgreSQL + TimescaleDB & MinIO deployed; Bronze/Silver/Gold Medallion pipeline configured; Python & Node.js SDKs v1 published; all 70 agents audited & classified. | **0 / 70** |
-| **Phase 2** | **W4–W6** | **Tier 1 SDK Instrumentation**: Integrate Northstar SDK into all 25 source-accessible agents (LangGraph, LangChain, LiveKit); verify per-node traces, STT/TTS audio turn metrics, and prompt snapshots. | **25 / 70** |
-| **Phase 3** | **W7–W9** | **Tier 2 & Tier 5 Log & OTel Ingestion**: Deploy OTel Collector & custom exporter to 5 OTel-native VMs; deploy Fluent Bit & Lua parameter harmonization scripts to 20 log-emitting VMs. | **50 / 70** |
-| **Phase 4** | **W10–W12** | **Tier 3 & Tier 4 Bootstrapping & Proxies**: Execute SSH-based remote extraction (stdout tee, strace, inotify) for 15 terminal-only agents; deploy transparent HTTP reverse proxies for 5 black-box agents. | **70 / 70** |
-| **Phase 5** | **W13–W14** | **Enterprise Validation & Governance**: Validate Silver-layer parameter harmonization accuracy across all 70 streams; execute 10k trace/day load tests; calibrate Gold-layer Trust Scoring formula; publish operator runbooks; EM final sign-off. | **70 / 70 ✅** |
+| **Phase 1** | **W1–W3** | **Platform Foundation & Data Pipeline**: Dedicated Northstar VM set up; Central PostgreSQL + TimescaleDB & MinIO deployed; Bronze/Silver/Gold Medallion pipeline configured; Python & Node.js SDKs v1 published; all agents audited & classified. | **Phase 1 Complete** |
+| **Phase 2** | **W4–W6** | **Tier 1 SDK Instrumentation**: Integrate Northstar SDK into all source-accessible agents (LangGraph, LangChain, LiveKit); verify per-node traces, STT/TTS audio turn metrics, and prompt snapshots. | **Tier 1 Complete** |
+| **Phase 3** | **W7–W9** | **Tier 2 & Tier 5 Log & OTel Ingestion**: Deploy OTel Collector & custom exporter to OTel-native VMs; deploy Fluent Bit & Lua parameter harmonization scripts to log-emitting VMs. | **Tier 2 + 5 Complete** |
+| **Phase 4** | **W10–W12** | **Tier 3 & Tier 4 Bootstrapping & Proxies**: Execute SSH-based remote extraction (stdout tee, strace, inotify) for terminal-only agents; deploy transparent HTTP reverse proxies for black-box agents. | **All Tiers Onboarded** |
+| **Phase 5** | **W13–W14** | **Enterprise Validation & Governance**: Validate Silver-layer parameter harmonization accuracy across all agent streams; execute 10k trace/day load tests; calibrate Gold-layer Trust Scoring formula; publish operator runbooks; EM final sign-off. | **Full Launch ✅** |
 
 ---
 
@@ -1761,7 +1760,7 @@ gantt
 
 | Risk | Likelihood | Impact | Mitigation |
 |:---|:---:|:---:|:---|
-| **Northstar single-instance bottleneck** at 70-agent scale | Medium | High | Horizontal scaling plan; PostgreSQL persistence; batch ingest support |
+| **Northstar single-instance bottleneck** at multi-agent scale | Medium | High | Horizontal scaling plan; PostgreSQL persistence; batch ingest support |
 | **Network connectivity** — agents can't reach Northstar VM | Medium | High | Local buffering in SDK (queue + retry); Fluent Bit built-in retry |
 | **Log format diversity** — each agent logs differently | High | Medium | Per-agent Lua transforms; document log schemas during audit |
 | **Tier 4 agents** — proxy interception breaks TLS | Medium | Medium | Use env var override (`OPENAI_API_BASE`) where possible; avoid MitM |
@@ -1776,7 +1775,7 @@ gantt
 
 | Metric | Target | Measurement |
 |:---|:---|:---|
-| **Agent visibility** | 70/70 agents registered on dashboard | Fleet page shows all agents |
+| **Agent visibility** | 100% of target agents registered on dashboard | Fleet page shows all agents |
 | **Heartbeat coverage** | >90% of agents have heartbeat <5min old | Health page, heartbeat staleness |
 | **Trace ingestion** | >95% of agent invocations produce a trace | Compare known invocation count vs trace count |
 | **Full-depth traces** | >60% of traces include per-node logs and token counts | Trace inspector completeness |
