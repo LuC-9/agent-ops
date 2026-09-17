@@ -29,7 +29,7 @@ This proposal defines a **scenario-based onboarding strategy** to bring all 70 a
 3. [Agent Classification Matrix](#3-agent-classification-matrix)
 4. [Onboarding Approaches](#4-onboarding-approaches)
 5. [Scenario Playbooks](#5-scenario-playbooks)
-6. [Centralized Deployment Architecture](#6-centralized-deployment-architecture)
+6. [Centralized Deployment & Medallion Data Pipeline Architecture](#6-centralized-deployment--medallion-data-pipeline-architecture)
 7. [SDK Design Specification](#7-sdk-design-specification)
 8. [OTel Collector Configuration](#8-otel-collector-configuration)
 9. [Fluent Bit Configuration](#9-fluent-bit-configuration)
@@ -1258,62 +1258,206 @@ flowchart TD
 
 ---
 
-## 6. Centralized Deployment Architecture
+## 6. Centralized Deployment & Medallion Data Pipeline Architecture
+
+To onboard all 70 agents—which vary widely in framework, log maturity, and payload structure—into a single observability pane, Northstar utilizes a **centralized architecture** backed by a **single unified database** and a **Medallion Data Pipeline (Bronze → Silver → Gold)** for data filtration, cleaning, and parameter harmonization.
 
 ```mermaid
 flowchart TB
-    subgraph NorthstarVM["Northstar VM (Dedicated)"]
-        NS["Northstar Platform<br/>Next.js :43147"]
-        DB[("PostgreSQL<br/>Traces, Agents, Audit")]
-        ObjStore[("Object Store<br/>Prompt Snapshots")]
-        NS --> DB
-        NS --> ObjStore
+    subgraph Agents["70 Onboarded Agents (5 Approaches)"]
+        ApproachA["Approach A: Northstar SDK<br/>(LangGraph, LangChain, LiveKit)"]
+        ApproachB["Approach B: OTel Collector Bridge<br/>(OTLP Spans / Traces)"]
+        ApproachC["Approach C: Fluent Bit<br/>(Syslog / JSON Logs)"]
+        ApproachD["Approach D: Reverse Proxy<br/>(HTTP Interception)"]
+        ApproachE["Approach E: SSH Bootstrap<br/>(Stdout / Strace / Cron)"]
     end
 
-    subgraph VM1["Agent VM 1"]
-        A1["LangGraph Agent"]
-        A2["LangChain Agent"]
-        SDK1["Northstar SDK"]
-        A1 --> SDK1
-        A2 --> SDK1
+    subgraph CentralEngine["Centralized Northstar Platform VM"]
+        Gateway["Ingestion Gateway<br/>(POST /api/ingest & OTLP gRPC)"]
+
+        subgraph MedallionPipeline["Medallion Data Filtration & Cleaning Layer"]
+            Bronze["🥉 Bronze Layer<br/>Raw Append Log & Payload Store<br/>(Zero Data Loss)"]
+            Silver["🥈 Silver Layer<br/>Filtration, Cleaning, PII Masking &<br/>Parameter Harmonization Engine"]
+            Gold["🥇 Gold Layer<br/>Materialized GoldSpans, GoldLogs &<br/>GoldMetrics Analytics Engine"]
+        end
+
+        CentralDB[("Centralized Database<br/>PostgreSQL / TimescaleDB + Object Store")]
+        Webapp["Northstar Webapp & API<br/>(Next.js Dashboard :43147)"]
     end
 
-    subgraph VM2["Agent VM 2"]
-        A3["Cron Agent"]
-        A4["LiveKit Agent"]
-        SDK2["Northstar SDK"]
-        A3 --> SDK2
-        A4 --> SDK2
-    end
+    ApproachA -->|"HTTPS"| Gateway
+    ApproachB -->|"OTLP/HTTPS"| Gateway
+    ApproachC -->|"HTTPS"| Gateway
+    ApproachD -->|"HTTPS"| Gateway
+    ApproachE -->|"HTTPS"| Gateway
 
-    subgraph VM3["Agent VM 3"]
-        A5["Legacy Agent<br/>(no source access)"]
-        Logs3[("/var/log/agent.log")]
-        FB["Fluent Bit"]
-        A5 --> Logs3
-        FB --> Logs3
-    end
-
-    subgraph VM4["Agent VM 4"]
-        A6["Black-box Agent"]
-        Proxy["mitmproxy"]
-        A6 --> Proxy
-    end
-
-    subgraph VM5["Agent VM 5"]
-        A7["OTel-Native Agent"]
-        OTel["OTel Collector"]
-        A7 --> OTel
-    end
-
-    SDK1 -->|"HTTPS"| NS
-    SDK2 -->|"HTTPS"| NS
-    FB -->|"HTTPS"| NS
-    Proxy -->|"HTTPS"| NS
-    OTel -->|"HTTPS"| NS
+    Gateway --> Bronze
+    Bronze --> Silver
+    Silver --> Gold
+    Bronze --> CentralDB
+    Silver --> CentralDB
+    Gold --> CentralDB
+    Webapp -->|"Read Gold Views"| CentralDB
 ```
 
-### Network Requirements
+---
+
+### 6.1 Centralized Storage & Single Database Strategy
+
+Regardless of whether telemetry originates from an SDK-instrumented LangGraph agent, a Fluent Bit log shipper, an HTTP proxy, or an SSH stdout tail, **all data flows into a single centralized database instance** co-located with or connected to the Northstar VM.
+
+- **Primary Database**: PostgreSQL with TimescaleDB extension for hyper-table time-series indexing.
+- **Object Storage**: S3-compatible local bucket (MinIO or cloud storage) for raw prompt/response payload snapshots exceeding 100KB.
+- **Unified Querying**: The Northstar Webapp UI (`/src/obs-ui`, Next.js API routes) reads exclusively from unified materialized views in this central database.
+
+---
+
+### 6.2 Medallion Architecture Data Pipeline (Bronze → Silver → Gold)
+
+Because the 70 agents use different logging formats and field parameter names (e.g., `prompt` vs `input` vs `user_query`), telemetry cannot be blindly inserted into analytical tables. Northstar applies a **3-tier Medallion Data Pipeline** to clean, filter, and normalize all incoming telemetry:
+
+```mermaid
+flowchart LR
+    Ingest["Raw Ingest Payloads"] --> Bronze["🥉 Bronze Layer<br/>(Raw Payload Store)"]
+    Bronze --> Silver["🥈 Silver Layer<br/>(Cleaned & Standardized)"]
+    Silver --> Gold["🥇 Gold Layer<br/>(Business KPIs & Traces)"]
+
+    subgraph Bronze_Details["Bronze Tasks"]
+        B1["Store raw JSON"]
+        B2["Tag source IP & approach"]
+        B3["Immutable audit record"]
+    end
+
+    subgraph Silver_Details["Silver Tasks"]
+        S1["PII / Token Sanitization"]
+        S2["Parameter Harmonization"]
+        S3["Noise & Duplicate Filter"]
+        S4["Token & Timestamp Normalization"]
+    end
+
+    subgraph Gold_Details["Gold Tasks"]
+        G1["GoldSpan / GoldLog / GoldMetric"]
+        G2["Financial Cost Engine"]
+        G3["Real-time Trust Scoring"]
+    end
+
+    Bronze --- Bronze_Details
+    Silver --- Silver_Details
+    Gold --- Gold_Details
+```
+
+#### 🥉 1. Bronze Layer (Raw Ingestion & Storage)
+- **Purpose**: Raw intake buffer. Retains exact, un-altered incoming payloads from all 5 onboarding approaches to ensure zero data loss.
+- **Table Schema**: `bronze_telemetry_raw`
+  - `id` (UUID, Primary Key)
+  - `agent_slug` (VARCHAR) — Identifier of the submitting agent
+  - `source_approach` (ENUM: `SDK`, `OTEL_COLLECTOR`, `FLUENT_BIT`, `REVERSE_PROXY`, `SSH_BOOTSTRAP`)
+  - `raw_payload` (JSONB) — Full raw JSON body or syslog string
+  - `ingested_at` (TIMESTAMPTZ UTC) — Server timestamp when packet arrived
+  - `source_ip` (INET) — VM IP address of sender
+  - `headers_json` (JSONB) — HTTP request headers (user agent, API key ID)
+
+#### 🥈 2. Silver Layer (Data Filtration, Cleaning & Parameter Harmonization)
+- **Purpose**: Asynchronous cleaning worker process that validates, sanitizes, and harmonizes heterogeneous agent logs into standard normalized structures.
+- **Key Pipeline Operations**:
+
+1. **Filtration & Noise Reduction**:
+   - **Heartbeat & Ping Suppression**: Filters out healthcheck logs and duplicate periodic ping frames from cron agents.
+   - **Dead Letter Queue (DLQ)**: Routes corrupt/unparseable JSON payloads to `silver_dead_letter_queue` for operator inspection.
+
+2. **Sanitization & PII Masking**:
+   - Automatically redacts authorization tokens, API keys (`sk-[a-zA-Z0-9]{32,}`, `Bearer eyJ...`), passwords, SSNs, and credit card numbers using high-performance regex masks before storage.
+
+3. **Parameter Harmonization (Cross-Framework Mapping)**:
+   Different agent frameworks and custom scripts emit different parameter names for identical concepts. The Silver cleaning layer normalizes parameter names into Northstar standard fields:
+
+   | Concept | Incoming Parameter Variations Across 70 Agents | Harmonized Northstar Standard Field |
+   |:---|:---|:---|
+   | **Input Prompt** | `prompt`, `input`, `user_query`, `content`, `message`, `query`, `input_text` | `request` |
+   | **Output Response** | `response`, `output`, `answer`, `result`, `completion`, `output_text` | `response` |
+   | **LLM Model** | `llm_model`, `model_name`, `engine`, `gen_ai.request.model`, `model` | `model` |
+   | **Agent Identifier** | `slug`, `agentId`, `agent_name`, `service.name`, `app_id` | `slug` |
+   | **Latency / Duration** | `duration`, `duration_ms`, `elapsed`, `response_time`, `latency` | `duration_ms` |
+   | **Tokens (Input)** | `prompt_tokens`, `input_tokens`, `gen_ai.prompt_tokens` | `gen_ai_input_tokens` |
+   | **Tokens (Output)** | `completion_tokens`, `output_tokens`, `gen_ai.completion_tokens` | `gen_ai_output_tokens` |
+   | **Trace / Request ID** | `trace_id`, `requestId`, `correlation_id`, `run_id` | `trace_id` |
+
+4. **Type Normalization & Fallbacks**:
+   - Converts all timestamps to ISO-8601 UTC.
+   - If token counts are missing from raw logs, applies character-length token estimation fallback: `estTokens(text) = ceil(len(text) / 4)`.
+
+- **Table Schemas**: `silver_normalized_spans`, `silver_normalized_logs`, `silver_normalized_metrics`.
+
+#### 🥇 3. Gold Layer (Business Analytics, Trust Scoring & Dashboard Models)
+- **Purpose**: High-performance materialized analytics layer designed specifically to feed the Northstar Webapp UI (`/src/obs-ui`) and dashboard APIs.
+- **Codebase Data Model Alignment**: Directly implements the runtime structures in `src/lib/dash-gold.ts`:
+
+```typescript
+// Gold Analytical Models (Matching Northstar Engine)
+export interface GoldSpan {
+  trace_id: string;
+  span_id: string;
+  parent_span_id: string | null;
+  span_name: string;
+  span_kind: string;
+  start_time: string;
+  end_time: string;
+  duration_ms: number;
+  status_code: "ok" | "error";
+  status_message: string | null;
+  service_name: string;
+  agent_name: string;
+  conversation_id: string;
+  model: string | null;
+  gen_ai_input_tokens: number;
+  gen_ai_output_tokens: number;
+  llm_cost_total_usd: number;   // Calculated via priceForModel()
+  input_text: string | null;
+  output_text: string | null;
+  attributes_json: string;
+  project_id: string;
+  source_platform: string;
+  ingested_at: string;
+  is_tool: boolean;
+}
+
+export interface GoldLog {
+  timestamp: string;
+  service_name: string;
+  environment: string;
+  severity: "DEBUG" | "INFO" | "WARN" | "ERROR";
+  message: string;
+  trace_id: string;
+  span_id: string;
+  project_id: string;
+}
+
+export interface GoldMetric {
+  timestamp: string;
+  service_name: string;
+  project_id: string;
+  environment: string;
+  category: string;
+  metric_type: string;
+  value: number;
+  response_code: string | null;
+  response_code_class: string | null;
+  state: string | null;
+  readiness_status: string | null;
+  hist_count: number | null;
+  hist_min: number | null;
+  hist_max: number | null;
+}
+```
+
+- **Calculated Gold Business Attributes**:
+  - **Financial Cost Engine**: Computes exact USD cost per trace using input/output token pricing lookup (`priceForModel()`).
+  - **Trust Score Engine**: Calculates continuous agent trust index: `0.40 × accuracy + 0.30 × confidence + 0.30 × reliability`.
+  - **Fleet Aggregations**: Pre-aggregates p50/p95/p99 latency, error rates, model breakdown, and tool usage frequencies.
+
+---
+
+### 6.3 Network Requirements & Security
 
 | From | To | Port | Protocol | Purpose |
 |:---|:---|:---:|:---|:---|
@@ -1321,13 +1465,11 @@ flowchart TB
 | Operator Workstation | Northstar VM | 43147 | HTTPS | Dashboard UI |
 | Northstar VM | Agent VMs | varies | HTTPS | Invoke proxy (optional) |
 
-### Authentication
+### 6.4 Authentication & Access Control
 
-Currently the ingest API has no authentication. For 70-agent production deployment:
-
-1. **API Key Authentication** — each agent/VM gets a unique `ns_key_...` token, passed as `Authorization: Bearer` header
-2. **Agent-specific keys** enable audit trail: which VM/agent sent which telemetry
-3. **Key rotation** via Northstar admin panel
+1. **API Key Authentication** — each agent/VM receives a unique `ns_key_...` token passed as `Authorization: Bearer` header.
+2. **Agent-specific keys** enable full audit trail attribution: tracking which VM/agent submitted telemetry.
+3. **Key rotation** managed via Northstar admin panel.
 
 ---
 
