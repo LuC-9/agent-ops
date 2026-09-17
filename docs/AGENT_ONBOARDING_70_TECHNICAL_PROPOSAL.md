@@ -1708,54 +1708,52 @@ for agent in inventory["agents"]:
 
 ---
 
-## 11. Rollout Plan
+## 11. Rollout Plan (3.5-Month Schedule)
+
+The onboarding of all 70 agents is structured across a **14-week (3.5-month)** phased rollout. This timeframe ensures robust foundation building, thorough agent audit, incremental tier-by-tier onboarding, validation of the Medallion Data Pipeline, and extensive load testing.
 
 ```mermaid
 gantt
-    title Agent Onboarding Rollout
+    title 70-Agent Onboarding Rollout (14 Weeks / 3.5 Months)
     dateFormat  YYYY-MM-DD
+    axisFormat  W%V
     
-    section Week 1-2: Foundation
-    Audit and classify all 70 agents          :a1, 2026-09-22, 5d
-    Deploy Northstar to dedicated VM        :a2, 2026-09-22, 3d
-    Set up PostgreSQL persistence           :a3, after a2, 3d
-    Add API key auth to ingest endpoint     :a4, after a2, 2d
-    Build and publish Python SDK v1           :a5, 2026-09-22, 7d
-    Build and publish Node.js SDK v1          :a6, 2026-09-22, 7d
+    section Phase 1: Foundation (W1-3)
+    Audit & classify all 70 agents            :a1, 2026-10-01, 7d
+    Deploy Central Northstar VM & Database   :a2, after a1, 5d
+    Build & deploy Medallion Pipeline        :a3, after a2, 5d
+    Publish Python & Node.js SDKs v1         :a4, after a2, 7d
     
-    section Week 3-4: Tier 1 with SDK
-    Onboard 25 agents with SDK             :b1, after a5, 10d
-    Build framework integrations            :b2, after a5, 7d
+    section Phase 2: Tier 1 SDK (W4-6)
+    Onboard 25 Tier 1 Agents with SDK        :b1, after a4, 14d
+    Framework Handlers (LangGraph/LiveKit)   :b2, after a4, 10d
     
-    section Week 5-6: Tier 2 and 5
-    Deploy OTel Collectors on VMs           :c1, after b1, 5d
-    Build custom Northstar OTel exporter    :c2, after b1, 5d
-    Deploy Fluent Bit on log-emitting VMs   :c3, after b1, 5d
-    Write per-agent Lua transforms          :c4, after c3, 5d
-    Onboard 20 agents Tier 2 plus 5         :c5, after c1, 5d
+    section Phase 3: Tier 2 & 5 (W7-9)
+    Deploy OTel Collectors & Exporter        :c1, after b1, 7d
+    Deploy Fluent Bit & Lua Transforms       :c2, after b1, 10d
+    Onboard 25 Tier 2 + Tier 5 Agents        :c3, after c1, 10d
     
-    section Week 7-8: Tier 3 and 4
-    SSH into Tier 3 VMs enable logging      :d1, after c5, 5d
-    Deploy Fluent Bit on newly-logging VMs  :d2, after d1, 3d
-    Deploy HTTP proxies for Tier 4          :d3, after c5, 5d
-    Onboard remaining 25 agents             :d4, after d1, 5d
+    section Phase 4: Tier 3 & 4 (W10-12)
+    SSH Remote Extraction (Tier 3)           :d1, after c3, 10d
+    Deploy HTTP Proxies (Tier 4)             :d2, after c3, 7d
+    Onboard remaining 20 Tier 3/4 Agents     :d3, after d1, 7d
     
-    section Week 9-10: Validation
-    Verify all 70 agents visible on dash    :e1, after d4, 3d
-    Validate trust scores and scoring       :e2, after e1, 3d
-    Load testing and tuning                 :e3, after e1, 5d
-    Documentation and runbooks              :e4, after e1, 5d
+    section Phase 5: Validation (W13-14)
+    Validate Medallion Pipeline & Harmonization :e1, after d3, 5d
+    Load & Stress Testing (Central DB)       :e2, after e1, 4d
+    Trust Score Calibration & Runbooks       :e3, after e2, 5d
+    EM Sign-off & Production Launch          :e4, after e3, 2d
 ```
 
-### Weekly Milestones
+### Phased Weekly Milestones
 
-| Week | Milestone | Agents Onboarded |
-|:---:|:---|:---:|
-| 1-2 | Foundation: Northstar deployed centrally, SDKs published, all 70 classified | 0 |
-| 3-4 | Tier 1 complete: all source-accessible agents instrumented with SDK | ~25 |
-| 5-6 | Tier 2+5: log shippers and OTel collectors deployed | ~45 |
-| 7-8 | Tier 3+4: bootstrapped agents and proxy-intercepted agents | ~70 |
-| 9-10 | Validation: all agents visible, scoring validated, load tested | 70 ✅ |
+| Phase | Weeks | Milestone & Deliverables | Cumulative Agents Onboarded |
+|:---:|:---:|:---|:---:|
+| **Phase 1** | **W1–W3** | **Platform Foundation & Data Pipeline**: Dedicated Northstar VM set up; Central PostgreSQL + TimescaleDB & MinIO deployed; Bronze/Silver/Gold Medallion pipeline configured; Python & Node.js SDKs v1 published; all 70 agents audited & classified. | **0 / 70** |
+| **Phase 2** | **W4–W6** | **Tier 1 SDK Instrumentation**: Integrate Northstar SDK into all 25 source-accessible agents (LangGraph, LangChain, LiveKit); verify per-node traces, STT/TTS audio turn metrics, and prompt snapshots. | **25 / 70** |
+| **Phase 3** | **W7–W9** | **Tier 2 & Tier 5 Log & OTel Ingestion**: Deploy OTel Collector & custom exporter to 5 OTel-native VMs; deploy Fluent Bit & Lua parameter harmonization scripts to 20 log-emitting VMs. | **50 / 70** |
+| **Phase 4** | **W10–W12** | **Tier 3 & Tier 4 Bootstrapping & Proxies**: Execute SSH-based remote extraction (stdout tee, strace, inotify) for 15 terminal-only agents; deploy transparent HTTP reverse proxies for 5 black-box agents. | **70 / 70** |
+| **Phase 5** | **W13–W14** | **Enterprise Validation & Governance**: Validate Silver-layer parameter harmonization accuracy across all 70 streams; execute 10k trace/day load tests; calibrate Gold-layer Trust Scoring formula; publish operator runbooks; EM final sign-off. | **70 / 70 ✅** |
 
 ---
 
