@@ -41,6 +41,7 @@ export interface AiUsage {
   agentId?: string;
   traceId?: string;
   node?: string;
+  summary?: string;
   promptTokens: number;
   completionTokens: number;
   latencyMs: number;
@@ -123,6 +124,7 @@ export interface CopilotTurn {
 }
 
 export interface StoreData {
+  seedRevision?: number;
   agents: Agent[];
   traces: Trace[];
   improvements: Improvement[];

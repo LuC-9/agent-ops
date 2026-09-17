@@ -19,7 +19,7 @@ Each invoke writes an **audit event** and **AI usage** rows (per LangGraph node 
 
 Full clone → install → demo: **[docs/LOCAL_RUN.md](docs/LOCAL_RUN.md)**.
 
-Two terminals:
+Two terminals (macOS / Linux / WSL):
 
 ```bash
 chmod +x run-observability.sh run-agents.sh
@@ -28,6 +28,16 @@ chmod +x run-observability.sh run-agents.sh
 
 ```bash
 ./run-agents.sh
+```
+
+Windows PowerShell:
+
+```powershell
+.\run-observability.ps1
+```
+
+```powershell
+.\run-agents.ps1
 ```
 
 - Dashboard: [http://127.0.0.1:43147](http://127.0.0.1:43147)
@@ -46,7 +56,8 @@ Then open **Run agents** in the UI and invoke a prompt. Traces land in the contr
 ## Docs
 
 - [Run on a laptop](docs/LOCAL_RUN.md) — prerequisites, two processes, health checks, curl demo, troubleshooting
-- [Interview brief](docs/INTERVIEW.md) — pitch, architecture, scoring, graphs, tradeoffs, expected questions
+- [Interview Q&A Guide](docs/INTERVIEW_QA_GUIDE.md) — pitch, architecture, AI usage, guardrails, code map, 20+ Q&As
+- [AI Suggestions, Fixes & Copilot Architecture](docs/AI_SUGGESTIONS_FIXES_COPILOT.md) — mechanics of analyst rules, system prompt patching, and chatbot engine
 - [High-level design](docs/HLD.md)
 - [Technical documentation](docs/TECHNICAL.md)
 

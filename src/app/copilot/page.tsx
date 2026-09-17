@@ -1,8 +1,5 @@
-import { CopilotChat } from "@/components/copilot-chat";
-import { getStore } from "@/lib/store";
-
-export const dynamic = "force-dynamic";
-
-export default function CopilotPage() {
-  return <CopilotChat initial={getStore().copilot} />;
+"use client";
+import RedirectHome from "../legacy-redirect";
+export default function Page() {
+  return <RedirectHome tab="overview" />;
 }

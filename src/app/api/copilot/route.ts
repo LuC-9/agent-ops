@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { json, corsHeaders } from "@/lib/http";
 import { answerCopilot, llmAugmentDetailed } from "@/lib/observability-agent";
-import { addCopilotTurns, getStore } from "@/lib/store";
+import { addCopilotTurns, getStore, ingestDashboardAi } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -19,7 +19,7 @@ export async function POST(req: Request) {
   const question = String(body?.question ?? "").trim();
   if (!question) return json({ error: "question required" }, 400);
   const store = getStore();
-  const heuristic = answerCopilot(store, question);
+  const heuristic = answerCopilot(store, question, body?.context);
   const context = JSON.stringify({
     question,
     agents: store.agents.map((a) => ({
@@ -54,12 +54,19 @@ export async function POST(req: Request) {
   const now = new Date().toISOString();
   const user = { id: randomUUID(), role: "user" as const, content: question, createdAt: now };
   const assistant = { id: randomUUID(), role: "assistant" as const, content: detailed.text, createdAt: now };
-  addCopilotTurns([user, assistant], {
+  ingestDashboardAi({
+    request: question,
+    response: detailed.text,
     model: detailed.model,
     promptTokens: detailed.promptTokens,
     completionTokens: detailed.completionTokens,
     latencyMs: detailed.latencyMs,
     fallback: detailed.fallback,
+    provider: detailed.provider,
+    purpose: "copilot",
+    node: "assistant.chat",
+    summary: question.slice(0, 240),
   });
+  addCopilotTurns([user, assistant]);
   return json({ answer: detailed.text, messages: getStore().copilot });
 }

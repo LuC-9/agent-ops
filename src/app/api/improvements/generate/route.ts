@@ -1,6 +1,6 @@
 import { json, corsHeaders } from "@/lib/http";
 import { analyzeStore, llmAugmentDetailed } from "@/lib/observability-agent";
-import { addImprovements, getStore, recordAudit, recordUsage } from "@/lib/store";
+import { addImprovements, getStore, ingestDashboardAi, recordAudit } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
@@ -17,15 +17,18 @@ export async function POST() {
   const prompt = `Given this agent telemetry JSON, refine these improvement drafts. Keep titles. Return the same number of items as JSON array with keys title, rationale, suggestion.\nDrafts: ${JSON.stringify(ideas)}\nAgents: ${JSON.stringify(store.agents.map((a) => ({ id: a.id, name: a.name, prompt: a.systemPrompt, graph: a.graph })))}\nRecent errors: ${JSON.stringify(store.traces.filter((t) => t.status === "error").slice(0, 8))}`;
   const fallback = JSON.stringify(ideas);
   const detailed = await llmAugmentDetailed(prompt, fallback);
-  recordUsage({
-    ts: new Date().toISOString(),
-    purpose: "analyst",
+  ingestDashboardAi({
+    request: `Analyze logs; draft improvements (${ideas.length})`,
+    response: detailed.text,
     model: detailed.model,
     promptTokens: detailed.promptTokens,
     completionTokens: detailed.completionTokens,
     latencyMs: detailed.latencyMs,
     fallback: detailed.fallback,
     provider: detailed.provider,
+    purpose: "analyst",
+    node: "analyst.run",
+    summary: `Analyzed logs; drafted ${ideas.length} suggestion(s)`,
   });
   recordAudit({
     action: "analyst.run",

@@ -18,6 +18,7 @@ export function analyzeStore(store: StoreData): Omit<Improvement, "id" | "create
   const existingTitles = new Set(store.improvements.filter((i) => i.status === "open").map((i) => i.title));
 
   for (const agent of store.agents) {
+    if (agent.role === "observability") continue;
     const traces = store.traces.filter((t) => t.agentId === agent.id);
     const stats = summarizeAgent(agent, store.traces);
     const errors = recentErrors(traces);
@@ -118,9 +119,233 @@ export function analyzeStore(store: StoreData): Omit<Improvement, "id" | "create
   return ideas.slice(0, 6);
 }
 
-export function answerCopilot(store: StoreData, question: string): string {
+export type DashContext = {
+  tab?: string;
+  time_range?: string;
+  project?: string;
+  service?: string;
+  platform?: string;
+  chart?: {
+    chart?: string;
+    axis?: unknown[];
+    series?: { name?: string; type?: string; sample?: unknown[]; n?: number }[];
+  };
+};
+
+function numPoint(p: unknown): number | null {
+  if (typeof p === "number" && Number.isFinite(p)) return p;
+  if (typeof p === "string" && p.trim() && Number.isFinite(Number(p))) return Number(p);
+  if (p && typeof p === "object") {
+    const o = p as { value?: unknown; name?: unknown };
+    if (typeof o.value === "number") return o.value;
+    if (Array.isArray(o.value) && typeof o.value[0] === "number") return o.value[0];
+  }
+  if (Array.isArray(p) && typeof p[1] === "number") return p[1];
+  return null;
+}
+
+function fmtVal(name: string, n: number) {
+  const k = name.toLowerCase();
+  if (/cost|usd|\$/.test(k)) return n >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(6)}`;
+  if (/p50|p95|latency|ms/.test(k)) return `${Math.round(n)} ms`;
+  if (/rate|pct|%/.test(k)) return `${(n <= 1 ? n * 100 : n).toFixed(2)}%`;
+  if (Number.isInteger(n) || Math.abs(n) >= 20) return Math.round(n).toLocaleString();
+  return n.toFixed(2);
+}
+
+function seriesStats(name: string, sample: unknown[], axis: string[]) {
+  const vals = sample.map(numPoint);
+  const pts = vals
+    .map((v, i) => ({ i, v, label: String(axis[i] ?? i) }))
+    .filter((p): p is { i: number; v: number; label: string } => p.v != null);
+  if (!pts.length) return null;
+  const first = pts[0];
+  const last = pts[pts.length - 1];
+  let max = first;
+  let min = first;
+  let sum = 0;
+  for (const p of pts) {
+    sum += p.v;
+    if (p.v > max.v) max = p;
+    if (p.v < min.v) min = p;
+  }
+  const delta = last.v - first.v;
+  const dir = Math.abs(delta) < Math.max(1e-9, Math.abs(first.v) * 0.02) ? "flat" : delta > 0 ? "up" : "down";
+  return { name, first, last, max, min, sum, n: pts.length, dir, delta };
+}
+
+function explainFromPayload(dashboard: DashContext): string | null {
+  const payload = dashboard.chart;
+  const series = payload?.series;
+  if (!series?.length) return null;
+  const title = String(payload?.chart || "this chart");
+  const axis = (payload?.axis || []).map((x) => String(x));
+  const window = dashboard.time_range ? ` (${dashboard.time_range} window)` : "";
+  const stats = series
+    .map((s) => seriesStats(s.name || s.type || "series", s.sample || [], axis))
+    .filter(Boolean) as NonNullable<ReturnType<typeof seriesStats>>[];
+  if (!stats.length) return null;
+
+  const named = (re: RegExp) => stats.find((s) => re.test(s.name.toLowerCase()));
+  const cost = named(/cost|usd/);
+  const traces = named(/^traces$|requests|volume/);
+  const errs = named(/error/);
+  const p50 = named(/p50/);
+  const p95 = named(/p95/);
+  const inn = named(/input/);
+  const out = named(/output/);
+
+  const lines: string[] = [];
+  const t = title.toLowerCase();
+
+  if (t === "trends" || /trend/.test(t)) {
+    if (cost || errs) {
+      lines.push(
+        `**Trends**${window} is a time series of fleet load: **Cost (USD)** on the left axis, **Traces** and **Errors** on the count axis.`,
+      );
+      if (cost) {
+        lines.push(
+          `Spend moved ${cost.dir} from ${fmtVal(cost.name, cost.first.v)} (${cost.first.label}) to ${fmtVal(cost.name, cost.last.v)} (${cost.last.label}). Peak cost was ${fmtVal(cost.name, cost.max.v)} at ${cost.max.label}.`,
+        );
+      }
+      if (traces) {
+        lines.push(
+          `Trace volume ${traces.dir === "flat" ? "stayed roughly level" : `trended ${traces.dir}`} (last bucket ${fmtVal(traces.name, traces.last.v)}).`,
+        );
+      }
+      if (errs) {
+        lines.push(
+          errs.max.v > 0
+            ? `Errors peaked at ${fmtVal(errs.name, errs.max.v)} in ${errs.max.label}. Last bucket: ${fmtVal(errs.name, errs.last.v)}.`
+            : `No error counts in the sampled buckets — reliability looks clean in this slice.`,
+        );
+      }
+      const take: string[] = [];
+      if (errs && traces && traces.sum > 0 && errs.sum / traces.sum > 0.08) {
+        take.push("Error rate vs volume is high enough to investigate failing nodes (often Sentinel timeouts) before chasing cost.");
+      } else if (cost && cost.dir === "up" && (!errs || errs.dir !== "up")) {
+        take.push("Cost is rising without a matching error spike — check model mix and token-heavy agents, not just failures.");
+      } else if (errs && errs.max.v > 0) {
+        take.push(`Start with the ${errs.max.label} bucket: open Traces filtered to errors around that time.`);
+      } else {
+        take.push("Volume and cost are the story here; use the Cost / Latency / Tokens segments on this card if you need a different cut.");
+      }
+      lines.push(`**Takeaway:** ${take.join(" ")}`);
+    } else if (p50 || p95) {
+      lines.push(`**Trends → latency**${window} plots P50 and P95 response time over time.`);
+      if (p50) lines.push(`P50 ${p50.dir} to ${fmtVal("p50", p50.last.v)} (peak ${fmtVal("p50", p50.max.v)} at ${p50.max.label}).`);
+      if (p95) lines.push(`P95 ${p95.dir} to ${fmtVal("p95", p95.last.v)} (peak ${fmtVal("p95", p95.max.v)} at ${p95.max.label}).`);
+      lines.push(
+        `**Takeaway:** ${
+          p95 && p50 && p95.last.v > p50.last.v * 2.5
+            ? "The tail is much slower than the median — a few traces (or one agent) are dragging P95. Open the slowest traces."
+            : "Latency is relatively tight; watch P95 if it keeps climbing while P50 is flat."
+        }`,
+      );
+    } else if (inn || out) {
+      lines.push(`**Trends → tokens**${window} stacks input vs output tokens over time.`);
+      if (inn) lines.push(`Input last bucket ${fmtVal("tokens", inn.last.v)}; peak ${fmtVal("tokens", inn.max.v)} at ${inn.max.label}.`);
+      if (out) lines.push(`Output last bucket ${fmtVal("tokens", out.last.v)}; peak ${fmtVal("tokens", out.max.v)} at ${out.max.label}.`);
+      lines.push("**Takeaway:** Token spikes usually mean longer prompts or verbose agents — that is the cost driver even when trace count is flat.");
+    } else if (traces) {
+      lines.push(`**Trends → requests**${window} is trace volume over time. Last bucket ${fmtVal(traces.name, traces.last.v)}, peak ${fmtVal(traces.name, traces.max.v)} at ${traces.max.label}.`);
+      lines.push("**Takeaway:** Use this to see load shape (weekday vs weekend). Pair with the Cost & Errors view if a busy bucket also got expensive.");
+    }
+  }
+
+  if (!lines.length && /cost/.test(t)) {
+    const ranked = [...stats].sort((a, b) => b.max.v - a.max.v);
+    const pieish = series.some((s) => s.type === "pie") || series.some((s) => (s.sample || []).some((p) => p && typeof p === "object" && "name" in (p as object)));
+    if (pieish) {
+      const slices = (series[0].sample || [])
+        .map((p) => {
+          if (p && typeof p === "object" && "name" in (p as object)) {
+            const o = p as { name?: string; value?: number };
+            return { name: String(o.name || "—"), v: Number(o.value || 0) };
+          }
+          return null;
+        })
+        .filter(Boolean) as { name: string; v: number }[];
+      const total = slices.reduce((n, s) => n + s.v, 0) || 1;
+      const top = [...slices].sort((a, b) => b.v - a.v).slice(0, 3);
+      lines.push(`**${title}**${window} is a cost share breakdown.`);
+      lines.push(top.map((s) => `${s.name}: ${fmtVal("cost", s.v)} (${Math.round((s.v / total) * 100)}%)`).join("; ") + ".");
+      lines.push(`**Takeaway:** ${top[0] ? `${top[0].name} dominates spend — filter the dashboard to it before looking at cheaper slices.` : "No cost slices in this window."}`);
+    } else {
+      lines.push(`**${title}**${window} ranks spend.`);
+      lines.push(
+        ranked
+          .slice(0, 5)
+          .map((s) => `${s.name}: last ${fmtVal(s.name, s.last.v)} (peak ${fmtVal(s.name, s.max.v)})`)
+          .join("; ") + ".",
+      );
+      lines.push(`**Takeaway:** Start cost work on the top bar; the rest is noise until that one moves.`);
+    }
+  }
+
+  if (!lines.length) {
+    lines.push(`**${title}**${window} plots ${stats.map((s) => s.name).join(", ")}.`);
+    for (const s of stats.slice(0, 4)) {
+      lines.push(
+        `${s.name}: ${s.dir} from ${fmtVal(s.name, s.first.v)} (${s.first.label}) to ${fmtVal(s.name, s.last.v)} (${s.last.label}); peak ${fmtVal(s.name, s.max.v)} at ${s.max.label}.`,
+      );
+    }
+    const hottest = [...stats].sort((a, b) => b.max.v - a.max.v)[0];
+    lines.push(`**Takeaway:** The standout is ${hottest.name} at ${hottest.max.label}. Use that bucket as the time filter when you open Traces.`);
+  }
+
+  return lines.join("\n");
+}
+
+function explainTrendsFromStore(store: StoreData, timeRange?: string): string {
+  const cutoff = (() => {
+    const ms: Record<string, number> = { "1h": 3600_000, "24h": 86_400_000, "7d": 7 * 86_400_000, "30d": 30 * 86_400_000 };
+    const span = ms[timeRange || ""] ?? 7 * 86_400_000;
+    return new Date(Date.now() - span).toISOString();
+  })();
+  const traces = timeRange ? store.traces.filter((t) => t.startedAt >= cutoff) : store.traces;
+  const byDay = new Map<string, { n: number; err: number; lat: number }>();
+  for (const t of traces) {
+    const d = (t.startedAt || "").slice(0, 10) || "unknown";
+    const row = byDay.get(d) || { n: 0, err: 0, lat: 0 };
+    row.n += 1;
+    if (t.status === "error") row.err += 1;
+    row.lat += t.latencyMs || 0;
+    byDay.set(d, row);
+  }
+  const days = [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const last = days.slice(-7);
+  const peakErr = [...days].sort((a, b) => b[1].err - a[1].err)[0];
+  const window = timeRange ? ` (${timeRange})` : "";
+  const errN = traces.filter((t) => t.status === "error").length;
+  return [
+    `**Trends**${window} (Overview) is not a single KPI - the segmented card switches between Cost & Errors, Latency P50/P95, Tokens, and Requests. Default view overlays **LLM cost**, **trace count**, and **errors** over time.`,
+    `In store: ${traces.length} traces, ${errN} errors (${traces.length ? Math.round((errN / traces.length) * 100) : 0}%).`,
+    last.length
+      ? `Recent days: ${last.map(([d, r]) => `${d}: ${r.n} traces / ${r.err} errors`).join("; ")}.`
+      : "No daily buckets yet.",
+    peakErr && peakErr[1].err
+      ? `**Takeaway:** Worst error day was ${peakErr[0]} (${peakErr[1].err} failures). Open Traces for that date, then use Summarize / Suggest a fix on a failing run.`
+      : "**Takeaway:** Error counts are low; switch the Trends segment to Latency or Tokens if you are hunting spend or slowness rather than failures.",
+  ].join("\n");
+}
+
+function wantsChart(q: string, dashboard?: DashContext) {
+  if (dashboard?.chart?.series?.length) return true;
+  return /explain.{0,80}(chart|trends)|what does .{0,80}show|take away|this chart/.test(q);
+}
+
+export function answerCopilot(store: StoreData, question: string, dashboard?: DashContext): string {
   const q = question.toLowerCase();
-  const stats = store.agents.map((a) => ({ agent: a, stats: summarizeAgent(a, store.traces) }));
+  if (wantsChart(q, dashboard)) {
+    const fromUi = explainFromPayload(dashboard || {});
+    if (fromUi) return fromUi;
+    if (/trend/.test(q) || dashboard?.chart?.chart?.toLowerCase() === "trends") {
+      return explainTrendsFromStore(store, dashboard?.time_range);
+    }
+  }
+
+  const stats = store.agents.filter((a) => a.role !== "observability").map((a) => ({ agent: a, stats: summarizeAgent(a, store.traces) }));
   const worst = [...stats].sort((a, b) => a.stats.avgTrust - b.stats.avgTrust)[0];
   const errors = store.traces.filter((t) => t.status === "error");
   const open = store.improvements.filter((i) => i.status === "open");
@@ -175,8 +400,8 @@ export function answerCopilot(store: StoreData, question: string): string {
       .join("\n\n");
   }
 
-  const online = store.agents.filter((a) => a.status === "online").length;
-  return `I am the observability copilot for ${store.agents.length} onboarded agents (${online} currently heartbeating).
+  const online = store.agents.filter((a) => a.role !== "observability" && a.status === "online").length;
+  return `I am the observability copilot for ${store.agents.filter((a) => a.role !== "observability").length} onboarded agents (${online} currently heartbeating).
 Traces stored: ${store.traces.length}. Open improvements: ${open.length}.
 
 Ask me about accuracy/confidence/trust, error logs, system prompts, or request a new analysis pass.

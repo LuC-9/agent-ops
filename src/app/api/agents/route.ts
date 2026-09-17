@@ -9,7 +9,7 @@ export function OPTIONS() {
 }
 
 export function GET() {
-  return json({ agents: getStore().agents });
+  return json({ agents: getStore().agents.filter((a) => a.role !== "observability") });
 }
 
 export async function POST(req: Request) {

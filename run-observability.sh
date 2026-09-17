@@ -19,4 +19,4 @@ if [[ ! -d node_modules ]]; then
 fi
 
 echo "Northstar observability platform → http://127.0.0.1:${PORT}"
-exec npx next dev --hostname 0.0.0.0 --port "${PORT}"
+exec npx next dev --hostname 127.0.0.1 --port "${PORT}"

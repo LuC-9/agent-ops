@@ -1,13 +1,14 @@
 import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
-import { seedAgents, seedImprovements, seedTraces } from "./seed";
+import { seedAgents, seedImprovements, seedTraces, SEED_REVISION, assistantAgent, ASSISTANT_AGENT_ID } from "./seed";
 import { LIMITS } from "./limits";
 import { computeTrustScore, deriveAccuracy, deriveConfidence, reliabilityFromHistory } from "./scoring";
 import { applyDerivedStatuses } from "./status";
 import { sanitizeIngest } from "./validate";
 import type {
   Agent,
+  AiPurpose,
   AiUsage,
   AuditEvent,
   CopilotTurn,
@@ -21,9 +22,69 @@ import type {
 const DATA_DIR = path.join(process.cwd(), "data");
 const FILE = path.join(DATA_DIR, "observability.json");
 
+function ensureAssistantAgent(store: StoreData) {
+  if (!store.agents.some((a) => a.id === ASSISTANT_AGENT_ID || a.slug === assistantAgent.slug)) {
+    store.agents.push(structuredClone(assistantAgent));
+  }
+}
+
+function dashboardStepLogs(startedAt: string, endedAt: string, fallback: boolean) {
+  const nodes = ["receive", "gather", "llm", "score"];
+  const t0 = new Date(startedAt).getTime();
+  const span = Math.max(4, new Date(endedAt).getTime() - t0);
+  return nodes.map((node, i) => ({
+    ts: new Date(t0 + (span * i) / nodes.length).toISOString(),
+    level: "info" as const,
+    node,
+    message:
+      node === "llm"
+        ? fallback
+          ? "Completed node llm (heuristic fallback)"
+          : "Completed node llm"
+        : `Completed node ${node}`,
+  }));
+}
+
+function backfillDashboardAiTraces(store: StoreData) {
+  ensureAssistantAgent(store);
+  const agent = store.agents.find((a) => a.id === ASSISTANT_AGENT_ID);
+  if (!agent) return;
+  for (const u of store.usages) {
+    if (u.purpose !== "copilot" && u.purpose !== "analyst") continue;
+    if (u.traceId && store.traces.some((t) => t.id === u.traceId && t.agentId === ASSISTANT_AGENT_ID)) continue;
+    const endedAt = u.ts;
+    const startedAt = new Date(new Date(endedAt).getTime() - Math.max(1, u.latencyMs || 1)).toISOString();
+    const reply = store.copilot.find((c) => c.role === "assistant" && Math.abs(new Date(c.createdAt).getTime() - new Date(u.ts).getTime()) < 8000);
+    const question = u.summary || store.copilot.find((c) => c.role === "user" && Math.abs(new Date(c.createdAt).getTime() - new Date(u.ts).getTime()) < 8000)?.content || u.purpose;
+    const trace: Trace = {
+      id: `tr_${randomUUID().slice(0, 10)}`,
+      agentId: agent.id,
+      startedAt,
+      endedAt,
+      latencyMs: u.latencyMs || 1,
+      request: question,
+      response: reply?.content || "",
+      systemPrompt: agent.systemPrompt,
+      status: "ok",
+      accuracy: u.fallback ? 62 : 88,
+      confidence: u.fallback ? 70 : 86,
+      trustScore: u.fallback ? 68 : 84,
+      logs: dashboardStepLogs(startedAt, endedAt, u.fallback),
+      model: u.model,
+      tokens: { prompt: u.promptTokens, completion: u.completionTokens },
+      degraded: u.fallback,
+      calibrationGap: u.fallback ? 8 : -2,
+    };
+    store.traces.unshift(trace);
+    u.traceId = trace.id;
+    u.agentId = agent.id;
+  }
+}
+
 function emptyStore(): StoreData {
   return {
-    agents: structuredClone(seedAgents),
+    seedRevision: SEED_REVISION,
+    agents: [...structuredClone(seedAgents), structuredClone(assistantAgent)],
     traces: structuredClone(seedTraces),
     improvements: structuredClone(seedImprovements),
     copilot: [],
@@ -32,10 +93,24 @@ function emptyStore(): StoreData {
   };
 }
 
+function mergeLiveAgents(seeded: StoreData, existing: StoreData) {
+  for (const a of existing.agents) {
+    const s = seeded.agents.find((x) => x.id === a.id || x.slug === a.slug);
+    if (!s) continue;
+    s.status = a.status;
+    s.lastHeartbeatAt = a.lastHeartbeatAt;
+    s.endpoint = a.endpoint ?? s.endpoint;
+    s.systemPrompt = a.systemPrompt || s.systemPrompt;
+    s.version = a.version || s.version;
+  }
+  seeded.copilot = existing.copilot ?? [];
+}
+
 function readStore(): StoreData {
   try {
     if (!fs.existsSync(FILE)) {
       const seeded = emptyStore();
+      backfillIfEmpty(seeded);
       atomicWrite(seeded);
       return seeded;
     }
@@ -47,8 +122,20 @@ function readStore(): StoreData {
     parsed.copilot ??= [];
     parsed.audit ??= [];
     parsed.usages ??= [];
-    if (parsed.audit.length === 0 && parsed.traces.length) {
-      backfillIfEmpty(parsed);
+    const hadAssistant = parsed.agents.some((a) => a.id === ASSISTANT_AGENT_ID);
+    ensureAssistantAgent(parsed);
+    const before = parsed.traces.length;
+    backfillDashboardAiTraces(parsed);
+    const backfilled = parsed.traces.length !== before || !hadAssistant;
+    if (parsed.seedRevision !== SEED_REVISION) {
+      const seeded = emptyStore();
+      mergeLiveAgents(seeded, parsed);
+      backfillIfEmpty(seeded);
+      atomicWrite(seeded);
+      return seeded;
+    }
+    if (backfilled || (parsed.audit.length === 0 && parsed.traces.length)) {
+      if (parsed.audit.length === 0 && parsed.traces.length) backfillIfEmpty(parsed);
       atomicWrite(parsed);
     }
     return parsed;
@@ -214,9 +301,14 @@ export function heartbeat(slugOrId: string) {
   });
 }
 
-export function ingestTrace(payload: IngestPayload): Trace {
+export function ingestTrace(payload: IngestPayload, opts?: {
+  usagePurpose?: AiPurpose;
+  skipAutoImprove?: boolean;
+  usageExtra?: Pick<AiUsage, "summary" | "node" | "fallback" | "provider">;
+}): Trace {
   const clean = sanitizeIngest(payload);
   return mutate((store) => {
+    ensureAssistantAgent(store);
     const agent = store.agents.find((a) => a.id === clean.agentId || a.slug === clean.slug);
     if (!agent) {
       throw new Error("Unknown agent. Register it before ingesting traces.");
@@ -273,7 +365,7 @@ export function ingestTrace(payload: IngestPayload): Trace {
     agent.status = status === "error" ? "degraded" : "online";
     pushAudit(store, {
       action: "agent.invoke",
-      actor: "agent-runtime",
+      actor: agent.id === ASSISTANT_AGENT_ID ? "copilot" : "agent-runtime",
       agentId: agent.id,
       traceId: trace.id,
       summary: `${status}${clean.degraded ? " (degraded)" : ""} · ${clean.request.slice(0, 80)}`,
@@ -283,22 +375,73 @@ export function ingestTrace(payload: IngestPayload): Trace {
     const completionTokens = clean.tokens?.completion ?? estimateTokens(clean.response || "");
     pushUsage(store, {
       ts: endedAt,
-      purpose: "agent",
+      purpose: opts?.usagePurpose ?? "agent",
       model: clean.model ?? "unknown",
       agentId: agent.id,
       traceId: trace.id,
+      node: opts?.usageExtra?.node,
+      summary: opts?.usageExtra?.summary,
       promptTokens,
       completionTokens,
       latencyMs,
-      fallback: !clean.model || clean.model === "deterministic-pack",
-      provider: (clean.model ?? "").includes("gemini") ? "gemini" : (clean.model ?? "").includes("gpt") ? "openai" : "local",
+      fallback: opts?.usageExtra?.fallback ?? (!clean.model || clean.model === "deterministic-pack"),
+      provider: opts?.usageExtra?.provider ?? ((clean.model ?? "").includes("gemini") ? "gemini" : (clean.model ?? "").includes("gpt") ? "openai" : "local"),
     });
     for (const extra of clean.usages ?? []) {
       pushUsage(store, { ...extra, agentId: extra.agentId ?? agent.id, traceId: extra.traceId ?? trace.id });
     }
-    autoImproveOnError(store, agent, trace);
+    if (!opts?.skipAutoImprove) autoImproveOnError(store, agent, trace);
     return trace;
   });
+}
+
+export function ingestDashboardAi(input: {
+  request: string;
+  response: string;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  latencyMs: number;
+  fallback: boolean;
+  provider: AiUsage["provider"];
+  purpose: "copilot" | "analyst";
+  node?: string;
+  summary?: string;
+  threadId?: string;
+  relatedTraceId?: string;
+}): Trace {
+  const ended = new Date();
+  const started = new Date(ended.getTime() - Math.max(1, input.latencyMs));
+  const request = input.relatedTraceId && !input.request.includes(input.relatedTraceId)
+    ? `${input.request} (subject ${input.relatedTraceId})`
+    : input.request;
+  return ingestTrace(
+    {
+      agentId: ASSISTANT_AGENT_ID,
+      request,
+      response: input.response,
+      startedAt: started.toISOString(),
+      endedAt: ended.toISOString(),
+      latencyMs: input.latencyMs,
+      model: input.model,
+      tokens: { prompt: input.promptTokens, completion: input.completionTokens },
+      degraded: input.fallback,
+      threadId: input.threadId,
+      logs: dashboardStepLogs(started.toISOString(), ended.toISOString(), input.fallback),
+      accuracy: input.fallback ? 62 : 88,
+      confidence: input.fallback ? 70 : 86,
+    },
+    {
+      usagePurpose: input.purpose,
+      skipAutoImprove: true,
+      usageExtra: {
+        summary: input.summary ?? input.request.slice(0, 240),
+        node: input.node,
+        fallback: input.fallback,
+        provider: input.provider,
+      },
+    },
+  );
 }
 
 function autoImproveOnError(store: StoreData, agent: Agent, trace: Trace) {
@@ -392,7 +535,14 @@ export function addImprovements(items: Omit<Improvement, "id" | "createdAt">[]) 
   });
 }
 
-export function addCopilotTurns(turns: CopilotTurn[], meta?: { model?: string; promptTokens?: number; completionTokens?: number; latencyMs?: number; fallback?: boolean }) {
+export function addCopilotTurns(turns: CopilotTurn[], meta?: {
+  model?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  latencyMs?: number;
+  fallback?: boolean;
+  provider?: "gemini" | "openai" | "local";
+}) {
   mutate((store) => {
     store.copilot.push(...turns);
     if (store.copilot.length > LIMITS.maxCopilotTurns) {
@@ -407,15 +557,17 @@ export function addCopilotTurns(turns: CopilotTurn[], meta?: { model?: string; p
       });
     }
     if (meta) {
+      const model = meta.model ?? "unknown";
       pushUsage(store, {
         ts: new Date().toISOString(),
         purpose: "copilot",
-        model: meta.model ?? "unknown",
+        model,
+        summary: question?.content.slice(0, 240),
         promptTokens: meta.promptTokens ?? estimateTokens(question?.content ?? ""),
         completionTokens: meta.completionTokens ?? estimateTokens(turns.find((t) => t.role === "assistant")?.content ?? ""),
         latencyMs: meta.latencyMs ?? 0,
         fallback: meta.fallback ?? false,
-        provider: (meta.model ?? "").includes("gemini") ? "gemini" : (meta.model ?? "").includes("gpt") ? "openai" : "local",
+        provider: meta.provider ?? (model.includes("gemini") ? "gemini" : model.includes("gpt") ? "openai" : "local"),
       });
     }
   });

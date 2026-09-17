@@ -6,8 +6,8 @@ This is the full laptop path: clone, install, start both processes, verify, and 
 
 | Process | Script | URL |
 | --- | --- | --- |
-| Observability dashboard + APIs | `./run-observability.sh` | http://127.0.0.1:43147 |
-| LangGraph agent runtime | `./run-agents.sh` | http://127.0.0.1:43148/health |
+| Observability dashboard + APIs | `./run-observability.sh` or `.\run-observability.ps1` | http://127.0.0.1:43147 |
+| LangGraph agent runtime | `./run-agents.sh` or `.\run-agents.ps1` | http://127.0.0.1:43148/health |
 
 Keep **two terminals** open. Start the dashboard first (or within ~60s of the agents — the runtime retries registration).
 
@@ -38,9 +38,27 @@ npm -v
 
 If `python3 -m venv` fails with ensurepip, the agent script falls back to `virtualenv` automatically.
 
-### Windows (what to actually do)
+### Windows (PowerShell / cmd)
 
-**Use WSL2 Ubuntu.** The run scripts are bash (`run-observability.sh`, `run-agents.sh`). PowerShell cannot run them as-is.
+Need **Git**, **Node.js 20+**, and **Python 3.11+** on PATH (`node -v`, `python --version`). Then two terminals in this repo:
+
+```powershell
+.\run-observability.ps1
+```
+
+```powershell
+.\run-agents.ps1
+```
+
+From **cmd.exe**, use `run-observability.cmd` and `run-agents.cmd`. Open **http://127.0.0.1:43147** — not `http://0.0.0.0:43147`.
+
+If `.\run-observability.ps1` is blocked, either use the `.cmd` wrappers or:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+WSL is optional. If you prefer Ubuntu:
 
 1. Install **WSL** in PowerShell (Admin):
 

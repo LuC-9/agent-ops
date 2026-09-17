@@ -1,35 +1,16 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { AppShell } from "@/components/app-shell";
-import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import "antd/dist/reset.css";
+import "@/obs-ui/index.css";
 
 export const metadata: Metadata = {
-  title: "Northstar Agent Observability",
-  description: "Trace, score, and improve LangGraph agents.",
+  title: "Northstar GenAI Observability",
+  description: "Local agent observability — traces, cost, health, and copilot.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html
-      lang="en"
-      className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full">
-        <TooltipProvider>
-          <AppShell>{children}</AppShell>
-        </TooltipProvider>
-      </body>
+    <html lang="en">
+      <body style={{ margin: 0, minHeight: "100vh", background: "#F5F3EF" }}>{children}</body>
     </html>
   );
 }

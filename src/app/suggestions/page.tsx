@@ -1,9 +1,5 @@
-import { ImprovementsBoard } from "@/components/improvements-board";
-import { getStore } from "@/lib/store";
-
-export const dynamic = "force-dynamic";
-
-export default function SuggestionsPage() {
-  const store = getStore();
-  return <ImprovementsBoard initialItems={store.improvements} agents={store.agents} />;
+"use client";
+import RedirectHome from "../legacy-redirect";
+export default function Page() {
+  return <RedirectHome tab="insights" />;
 }
